@@ -1,0 +1,64 @@
+version: '3.9'
+
+services:
+  mysql:
+    image: mysql:8.2
+    container_name: shareway-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: shareway_db
+      MYSQL_USER: shareway_user
+      MYSQL_PASSWORD: shareway_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --max-connections=200
+      --innodb-buffer-pool-size=256M
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "shareway_user", "-pshareway_pass" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  phpmyadmin:
+    image: phpmyadmin:5.2
+    container_name: shareway-phpmyadmin
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: shareway_user
+      PMA_PASSWORD: shareway_pass
+    ports:
+      - "8081:80"
+
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: shareway-backend
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DB_USERNAME: shareway_user
+      DB_PASSWORD: shareway_pass
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/shareway_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      JWT_SECRET: change-me-in-production-minimum-32-chars-secret
+      FRONTEND_URL: http://localhost:4200
+    ports:
+      - "8080:8080"
+    volumes:
+      - uploads_data:/app/uploads
+      - logs_data:/app/logs
+
+volumes:
+  mysql_data:
+  uploads_data:
+  logs_data:
