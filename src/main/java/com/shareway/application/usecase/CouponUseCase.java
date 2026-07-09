@@ -1,9 +1,9 @@
 package com.shareway.application.usecase;
 
-import com.shareway.infrastructure.adapter.audit.domain.exception.InvalidOperationException;
-import com.shareway.infrastructure.adapter.audit.domain.model.Coupon;
-import com.shareway.infrastructure.adapter.audit.domain.repository.CouponRepository;
-import com.shareway.infrastructure.adapter.audit.domain.repository.CouponUsageRepository;
+import com.shareway.domain.exception.InvalidOperationException;
+import com.shareway.domain.model.Coupon;
+import com.shareway.domain.repository.CouponRepository;
+import com.shareway.domain.repository.CouponUsageRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

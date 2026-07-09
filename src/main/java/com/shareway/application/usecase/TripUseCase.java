@@ -395,23 +395,24 @@ import com.shareway.application.dto.response.TripUserResponse;
 import com.shareway.application.mapper.TripHistoryMapper;
 import com.shareway.application.port.out.AuditPort;
 import com.shareway.application.port.out.NotificationPort;
-import com.shareway.infrastructure.adapter.audit.domain.event.TripCancelledEvent;
-import com.shareway.infrastructure.adapter.audit.domain.exception.BookingNotFoundException;
-import com.shareway.infrastructure.adapter.audit.domain.exception.InsufficientSeatsException;
-import com.shareway.infrastructure.adapter.audit.domain.exception.InvalidOperationException;
-import com.shareway.infrastructure.adapter.audit.domain.exception.NotAuthorizedException;
-import com.shareway.infrastructure.adapter.audit.domain.exception.TripNotFoundException;
-import com.shareway.infrastructure.adapter.audit.domain.exception.UserNotFoundException;
-import com.shareway.infrastructure.adapter.audit.domain.model.Booking;
-import com.shareway.infrastructure.adapter.audit.domain.model.StopPoint;
-import com.shareway.infrastructure.adapter.audit.domain.model.Trip;
-import com.shareway.infrastructure.adapter.audit.domain.model.TripPreferences;
-import com.shareway.infrastructure.adapter.audit.domain.model.User;
-import com.shareway.infrastructure.adapter.audit.domain.repository.BookingRepository;
-import com.shareway.infrastructure.adapter.audit.domain.repository.TripEditHistoryRepository;
-import com.shareway.infrastructure.adapter.audit.domain.repository.TripRepository;
-import com.shareway.infrastructure.adapter.audit.domain.repository.UserRepository;
-import com.shareway.infrastructure.adapter.audit.domain.service.TripDomainService;
+import com.shareway.domain.event.TripCancelledEvent;
+import com.shareway.domain.exception.BookingNotFoundException;
+import com.shareway.domain.exception.InsufficientSeatsException;
+import com.shareway.domain.exception.InvalidOperationException;
+import com.shareway.domain.exception.NotAuthorizedException;
+import com.shareway.domain.exception.TripNotFoundException;
+import com.shareway.domain.exception.UserNotFoundException;
+import com.shareway.domain.model.Booking;
+import com.shareway.domain.model.StopPoint;
+import com.shareway.domain.model.Trip;
+import com.shareway.domain.model.TripPreferences;
+import com.shareway.domain.model.User;
+import com.shareway.domain.repository.BookingRepository;
+import com.shareway.domain.repository.TripEditHistoryRepository;
+import com.shareway.domain.repository.TripRepository;
+import com.shareway.domain.repository.UserRepository;
+import com.shareway.domain.service.PenaltyService;
+import com.shareway.domain.service.TripDomainService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -445,6 +446,8 @@ public class TripUseCase {
     private final NotificationPort notificationPort;
     private final TripEditHistoryRepository tripEditHistoryRepository;
     private final TripHistoryMapper tripHistoryMapper;
+    private final StripeUseCase stripeUseCase;
+    private final PenaltyService penaltyService;
 
     // ── Créer un trajet ───────────────────────────────────────────────────
     public TripResponse create(CreateTripRequest req, String driverId) {
@@ -658,6 +661,9 @@ public class TripUseCase {
 
         if ("ACCEPTED".equals(req.getAction())) {
             booking.confirm();
+
+            stripeUseCase.createEscrowPaymentIntent(bookingId);
+
             notificationPort.notifyWithLink(
                     booking.getPassenger().getId(), "BOOKING",
                     "Réservation acceptée ! 🎉",
@@ -699,6 +705,12 @@ public class TripUseCase {
         Trip trip = booking.getTrip();
         tripRepository.save(trip);
 
+        if (booking.getPaymentIntentId() != null) {
+            stripeUseCase.cancelPayment(booking.getPaymentIntentId());
+        }
+
+        penaltyService.assessLateCancellation(booking, booking.getPassenger());
+
         notificationPort.notify(
                 trip.getDriver().getId(), "CANCELLATION",
                 "Un passager a annulé",
@@ -718,6 +730,11 @@ public class TripUseCase {
                 .filter(Booking::isActive).toList();
         actives.forEach(b -> {
             b.cancelByPassenger("Trajet annulé par le conducteur");
+
+            if (b.getPaymentIntentId() != null) {
+                stripeUseCase.cancelPayment(b.getPaymentIntentId());
+            }
+
             notificationPort.notify(b.getPassenger().getId(), "CANCELLATION",
                     "Trajet annulé",
                     "Votre trajet vers " + trip.getArrivalCity() + " a été annulé par le conducteur");
@@ -739,6 +756,11 @@ public class TripUseCase {
         trip.complete();
         trip.getBookings().stream().filter(Booking::isConfirmed).forEach(b -> {
             b.complete();
+
+            if (b.getPaymentIntentId() != null) {
+                stripeUseCase.capturePayment(b.getPaymentIntentId());
+            }
+
             notificationPort.notifyWithLink(
                     b.getPassenger().getId(), "REVIEW",
                     "Trajet terminé — donnez votre avis",

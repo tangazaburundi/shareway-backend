@@ -1,18 +1,21 @@
 package com.shareway.application.usecase;
 
-import com.shareway.infrastructure.adapter.audit.domain.exception.BookingNotFoundException;
-import com.shareway.infrastructure.adapter.audit.domain.exception.InvalidOperationException;
-import com.shareway.infrastructure.adapter.audit.domain.exception.NotAuthorizedException;
-import com.shareway.infrastructure.adapter.audit.domain.model.Booking;
-import com.shareway.infrastructure.adapter.audit.domain.model.Payment;
-import com.shareway.infrastructure.adapter.audit.domain.repository.BookingRepository;
-import com.shareway.infrastructure.adapter.audit.domain.repository.PaymentRepository;
-import com.shareway.infrastructure.adapter.audit.domain.repository.UserRepository;
+import com.shareway.domain.exception.BookingNotFoundException;
+import com.shareway.domain.exception.InvalidOperationException;
+import com.shareway.domain.exception.NotAuthorizedException;
+import com.shareway.domain.model.Booking;
+import com.shareway.domain.model.Payment;
+import com.shareway.domain.repository.BookingRepository;
+import com.shareway.domain.repository.PaymentRepository;
+import com.shareway.domain.repository.UserRepository;
 import com.stripe.Stripe;
 import com.stripe.model.PaymentIntent;
 import com.stripe.model.Refund;
+import com.stripe.model.Transfer;
+import com.stripe.param.PaymentIntentCaptureParams;
 import com.stripe.param.PaymentIntentCreateParams;
 import com.stripe.param.RefundCreateParams;
+import com.stripe.param.TransferCreateParams;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -96,6 +99,116 @@ public class StripeUseCase {
         } catch (com.stripe.exception.StripeException e) {
             log.error("Stripe error creating payment intent: {}", e.getMessage());
             throw new InvalidOperationException("Payment initialization failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Crée un PaymentIntent avec capture manuelle (escrow).
+     * Le paiement est autorisé mais pas capturé immédiatement.
+     */
+    public String createEscrowPaymentIntent(String bookingId) {
+        Stripe.apiKey = stripeSecretKey;
+
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new BookingNotFoundException("Booking not found"));
+
+        if (booking.getAmountPaid() == null)
+            throw new InvalidOperationException("Booking amount not set");
+
+        try {
+            long amount = convertToSmallestUnit(booking.getAmountPaid(), booking.getCurrency().name());
+            String currency = booking.getCurrency().name().toLowerCase();
+
+            PaymentIntentCreateParams params = PaymentIntentCreateParams.builder()
+                    .setAmount(amount)
+                    .setCurrency(currency)
+                    .setCaptureMethod(PaymentIntentCreateParams.CaptureMethod.MANUAL)
+                    .putMetadata("bookingId", bookingId)
+                    .putMetadata("userId", booking.getPassenger().getId())
+                    .putMetadata("tripId", booking.getTrip().getId())
+                    .setDescription("Shareway - Escrow for trip to " + booking.getTrip().getArrivalCity())
+                    .setAutomaticPaymentMethods(
+                            PaymentIntentCreateParams.AutomaticPaymentMethods.builder()
+                                    .setEnabled(true).build())
+                    .build();
+
+            PaymentIntent intent = PaymentIntent.create(params);
+
+            booking.setPaymentIntentId(intent.getId());
+            booking.setStripeStatus("REQUIRES_CAPTURE");
+            bookingRepository.save(booking);
+
+            Payment payment = Payment.builder()
+                    .booking(booking)
+                    .user(booking.getPassenger())
+                    .amount(booking.getAmountPaid())
+                    .currency(Payment.PaymentCurrency.valueOf(booking.getCurrency().name()))
+                    .stripePaymentIntentId(intent.getId())
+                    .status(Payment.PaymentStatus.PROCESSING)
+                    .build();
+            paymentRepository.save(payment);
+
+            log.info("Escrow PaymentIntent {} created for booking {}", intent.getId(), bookingId);
+            return intent.getId();
+
+        } catch (com.stripe.exception.StripeException e) {
+            log.error("Stripe error creating escrow payment intent: {}", e.getMessage());
+            throw new InvalidOperationException("Escrow payment initialization failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Capture un PaymentIntent (escrow -> fonds débloqués au conducteur).
+     */
+    public void capturePayment(String paymentIntentId) {
+        Stripe.apiKey = stripeSecretKey;
+
+        try {
+            PaymentIntent intent = PaymentIntent.retrieve(paymentIntentId);
+            PaymentIntentCaptureParams params = PaymentIntentCaptureParams.builder().build();
+            intent.capture(params);
+            log.info("PaymentIntent {} captured successfully", paymentIntentId);
+        } catch (com.stripe.exception.StripeException e) {
+            log.error("Stripe error capturing payment intent: {}", e.getMessage());
+            throw new InvalidOperationException("Payment capture failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Annule/libère un PaymentIntent (escrow -> passager remboursé).
+     */
+    public void cancelPayment(String paymentIntentId) {
+        Stripe.apiKey = stripeSecretKey;
+
+        try {
+            PaymentIntent intent = PaymentIntent.retrieve(paymentIntentId);
+            intent.cancel();
+            log.info("PaymentIntent {} cancelled/released", paymentIntentId);
+        } catch (com.stripe.exception.StripeException e) {
+            log.error("Stripe error cancelling payment intent: {}", e.getMessage());
+            throw new InvalidOperationException("Payment cancellation failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Transfère les fonds du compte plateforme vers le compte Stripe du conducteur.
+     */
+    public void createTransfer(String paymentIntentId, String driverStripeAccountId, BigDecimal amount) {
+        Stripe.apiKey = stripeSecretKey;
+
+        try {
+            TransferCreateParams params = TransferCreateParams.builder()
+                    .setAmount(convertToSmallestUnit(amount, "EUR"))
+                    .setCurrency("eur")
+                    .setDestination(driverStripeAccountId)
+                    .setTransferGroup(paymentIntentId)
+                    .build();
+
+            Transfer transfer = Transfer.create(params);
+            log.info("Transfer {} created for driver account {}", transfer.getId(), driverStripeAccountId);
+        } catch (com.stripe.exception.StripeException e) {
+            log.error("Stripe error creating transfer: {}", e.getMessage());
+            throw new InvalidOperationException("Transfer failed: " + e.getMessage());
         }
     }
 

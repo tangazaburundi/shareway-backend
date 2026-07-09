@@ -1,6 +1,6 @@
 package com.shareway.infrastructure.adapter.specification;
 
-import com.shareway.infrastructure.adapter.audit.domain.model.User;
+import com.shareway.domain.model.User;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
 

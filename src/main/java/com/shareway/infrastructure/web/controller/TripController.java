@@ -268,6 +268,7 @@ import com.shareway.application.dto.response.PassengerPublicResponse;
 import com.shareway.application.dto.response.TripEditHistoryResponse;
 import com.shareway.application.dto.response.TripResponse;
 import com.shareway.application.usecase.TripUseCase;
+import com.shareway.domain.service.PriceCalculationService;
 import com.shareway.infrastructure.security.SecurityUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -288,6 +289,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -306,6 +308,7 @@ import java.util.Map;
 public class TripController {
 
     private final TripUseCase tripUseCase;
+    private final PriceCalculationService priceCalculationService;
 
     // ════════════════════════════════════════════════════════════════
     // Routes sans {id} — déclarées en premier
@@ -354,6 +357,19 @@ public class TripController {
     @Operation(summary = "Trajet par token de partage")
     public ResponseEntity<ApiResponse<TripResponse>> getByShareToken(@PathVariable String token) {
         return ResponseEntity.ok(ApiResponse.ok(tripUseCase.getByShareToken(token)));
+    }
+
+    @GetMapping("/price-suggestion")
+    @Operation(summary = "Suggestion de prix", description = "Calcule un prix suggéré par place en fonction de la distance et du nombre de sièges")
+    public ResponseEntity<ApiResponse<BigDecimal>> priceSuggestion(
+            @RequestParam double fromLat,
+            @RequestParam double fromLng,
+            @RequestParam double toLat,
+            @RequestParam double toLng,
+            @RequestParam(defaultValue = "3") int seats) {
+        double distance = priceCalculationService.estimateDistance(fromLat, fromLng, toLat, toLng);
+        BigDecimal price = priceCalculationService.suggestPricePerSeat(distance, seats);
+        return ResponseEntity.ok(ApiResponse.ok(price));
     }
 
     // ════════════════════════════════════════════════════════════════

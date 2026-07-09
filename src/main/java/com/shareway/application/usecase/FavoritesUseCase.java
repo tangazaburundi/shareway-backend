@@ -1,14 +1,14 @@
 package com.shareway.application.usecase;
 
 import com.shareway.application.dto.response.UserResponse;
-import com.shareway.infrastructure.adapter.audit.domain.exception.InvalidOperationException;
-import com.shareway.infrastructure.adapter.audit.domain.exception.ResourceAlreadyExistsException;
-import com.shareway.infrastructure.adapter.audit.domain.exception.UserNotFoundException;
-import com.shareway.infrastructure.adapter.audit.domain.model.UserBlacklist;
-import com.shareway.infrastructure.adapter.audit.domain.model.UserFavorite;
-import com.shareway.infrastructure.adapter.audit.domain.repository.UserBlacklistRepository;
-import com.shareway.infrastructure.adapter.audit.domain.repository.UserFavoriteRepository;
-import com.shareway.infrastructure.adapter.audit.domain.repository.UserRepository;
+import com.shareway.domain.exception.InvalidOperationException;
+import com.shareway.domain.exception.ResourceAlreadyExistsException;
+import com.shareway.domain.exception.UserNotFoundException;
+import com.shareway.domain.model.UserBlacklist;
+import com.shareway.domain.model.UserFavorite;
+import com.shareway.domain.repository.UserBlacklistRepository;
+import com.shareway.domain.repository.UserFavoriteRepository;
+import com.shareway.domain.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

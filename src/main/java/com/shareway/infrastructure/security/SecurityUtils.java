@@ -1,6 +1,6 @@
 package com.shareway.infrastructure.security;
 
-import com.shareway.infrastructure.adapter.audit.domain.exception.NotAuthorizedException;
+import com.shareway.domain.exception.NotAuthorizedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 

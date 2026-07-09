@@ -2,8 +2,8 @@ package com.shareway.infrastructure.adapter.audit;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shareway.application.port.out.AuditPort;
-import com.shareway.infrastructure.adapter.audit.domain.model.AuditLog;
-import com.shareway.infrastructure.adapter.audit.domain.repository.AuditLogRepository;
+import com.shareway.domain.model.AuditLog;
+import com.shareway.domain.repository.AuditLogRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;

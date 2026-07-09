@@ -6,12 +6,12 @@ import com.shareway.application.dto.response.MessageResponse;
 import com.shareway.application.dto.response.PageResponse;
 import com.shareway.application.port.out.AuditPort;
 import com.shareway.application.port.out.NotificationPort;
-import com.shareway.infrastructure.adapter.audit.domain.exception.InvalidOperationException;
-import com.shareway.infrastructure.adapter.audit.domain.exception.UserNotFoundException;
-import com.shareway.infrastructure.adapter.audit.domain.model.Message;
-import com.shareway.infrastructure.adapter.audit.domain.model.User;
-import com.shareway.infrastructure.adapter.audit.domain.repository.MessageRepository;
-import com.shareway.infrastructure.adapter.audit.domain.repository.UserRepository;
+import com.shareway.domain.exception.InvalidOperationException;
+import com.shareway.domain.exception.UserNotFoundException;
+import com.shareway.domain.model.Message;
+import com.shareway.domain.model.User;
+import com.shareway.domain.repository.MessageRepository;
+import com.shareway.domain.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -269,6 +269,12 @@ public class MessageUseCase {
                 messageRepository.save(msg);
             }
         });
+    }
+
+    // ── Marquer toute une conversation comme lue (via WebSocket) ─────────
+    @Transactional
+    public void markConversationAsRead(String conversationId, String userId) {
+        messageRepository.markConversationAsRead(userId, conversationId);
     }
 
 }

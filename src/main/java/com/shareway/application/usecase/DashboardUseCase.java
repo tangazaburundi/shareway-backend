@@ -1,10 +1,11 @@
 package com.shareway.application.usecase;
 
-import com.shareway.infrastructure.adapter.audit.domain.model.Booking;
-import com.shareway.infrastructure.adapter.audit.domain.repository.BookingRepository;
-import com.shareway.infrastructure.adapter.audit.domain.repository.ReviewRepository;
-import com.shareway.infrastructure.adapter.audit.domain.repository.TripRepository;
-import com.shareway.infrastructure.adapter.audit.domain.repository.UserRepository;
+import com.shareway.domain.model.Booking;
+import com.shareway.domain.model.Trip;
+import com.shareway.domain.repository.BookingRepository;
+import com.shareway.domain.repository.ReviewRepository;
+import com.shareway.domain.repository.TripRepository;
+import com.shareway.domain.repository.UserRepository;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -15,6 +16,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -59,16 +63,47 @@ public class DashboardUseCase {
     public PassengerDashboard getPassengerDashboard(String passengerId) {
         var bookings = bookingRepository.findByPassengerIdAndDeletedAtIsNull(passengerId);
         long total = bookings.size();
-        long completed = bookings.stream().filter(b -> b.getStatus().name().equals("COMPLETED")).count();
-        long cancelled = bookings.stream().filter(b -> b.getStatus().name().equals("CANCELLED")).count();
+        long completed = bookings.stream().filter(b -> b.getStatus() == Booking.BookingStatus.COMPLETED).count();
+        long cancelled = bookings.stream().filter(b -> b.getStatus() == Booking.BookingStatus.CANCELLED).count();
+        long pending = bookings.stream().filter(b -> b.getStatus() == Booking.BookingStatus.PENDING).count();
+        long active = bookings.stream().filter(b -> b.getStatus() == Booking.BookingStatus.CONFIRMED).count();
+
         BigDecimal totalSpent = bookings.stream()
-                .filter(b -> b.getAmountPaid() != null)
+                .filter(b -> b.getAmountPaid() != null && b.getStatus() == Booking.BookingStatus.COMPLETED)
                 .map(Booking::getAmountPaid)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        Map<String, BigDecimal> spentByCurrency = bookings.stream()
+                .filter(b -> b.getAmountPaid() != null && b.getStatus() == Booking.BookingStatus.COMPLETED)
+                .collect(Collectors.groupingBy(
+                        b -> b.getCurrency() != null ? b.getCurrency().name() : "FBU",
+                        Collectors.reducing(BigDecimal.ZERO, Booking::getAmountPaid, BigDecimal::add)
+                ));
+
+        List<RecentBooking> recent = bookings.stream()
+                .sorted(Comparator.comparing(Booking::getCreatedAt).reversed())
+                .limit(10)
+                .map(b -> {
+                    Trip t = b.getTrip();
+                    return RecentBooking.builder()
+                            .id(b.getId())
+                            .tripId(t != null ? t.getId() : null)
+                            .departureCity(t != null ? t.getDepartureCity() : null)
+                            .arrivalCity(t != null ? t.getArrivalCity() : null)
+                            .departureTime(t != null ? t.getDepartureTime() : null)
+                            .status(b.getStatus().name())
+                            .amountPaid(b.getAmountPaid())
+                            .currency(b.getCurrency() != null ? b.getCurrency().name() : "FBU")
+                            .createdAt(b.getCreatedAt())
+                            .build();
+                })
+                .toList();
+
         return PassengerDashboard.builder()
                 .totalBookings(total).completedTrips(completed).cancelledTrips(cancelled)
-                .totalSpent(totalSpent)
+                .pendingBookings(pending).activeBookings(active)
+                .totalSpent(totalSpent).totalSpentByCurrency(spentByCurrency)
+                .recentBookings(recent)
                 .build();
     }
 
@@ -87,7 +122,19 @@ public class DashboardUseCase {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class PassengerDashboard {
-        private long totalBookings, completedTrips, cancelledTrips;
+        private long totalBookings, completedTrips, cancelledTrips, pendingBookings, activeBookings;
         private BigDecimal totalSpent;
+        private Map<String, BigDecimal> totalSpentByCurrency;
+        private List<RecentBooking> recentBookings;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RecentBooking {
+        private String id, tripId, departureCity, arrivalCity, status, currency;
+        private LocalDateTime departureTime, createdAt;
+        private BigDecimal amountPaid;
     }
 }

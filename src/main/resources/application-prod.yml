@@ -1,0 +1,49 @@
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/shareway_db?useSSL=true&requireSSL=true&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8}
+
+  mail:
+    properties:
+      mail.smtp.ssl.checkserveridentity: true
+      mail.smtp.ssl.trust: ${MAIL_HOST}
+
+  jpa:
+    show-sql: false
+
+server:
+  error:
+    include-message: never
+    include-binding-errors: never
+
+security:
+  jwt:
+    secret: ${JWT_SECRET}
+  admin-jwt:
+    secret: ${ADMIN_JWT_SECRET}
+
+shareway:
+  app:
+    frontend-url: ${FRONTEND_URL}
+  stripe:
+    secret-key: ${STRIPE_SECRET_KEY}
+    webhook-secret: ${STRIPE_WEBHOOK_SECRET}
+
+logging:
+  level:
+    com.shareway: WARN
+    org.springframework: WARN
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: when-authorized

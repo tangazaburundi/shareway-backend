@@ -10,4 +10,5 @@ public class RegisterRequest {
     private String phone;
     @NotBlank private String role; // DRIVER, PASSENGER, BOTH
     private String preferredLang;
+    private String referralCode;
 }

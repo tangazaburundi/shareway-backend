@@ -7,16 +7,16 @@ import com.shareway.application.port.out.AuditPort;
 import com.shareway.application.port.out.EmailPort;
 import com.shareway.application.port.out.JwtPort;
 import com.shareway.application.port.out.TwoFaPort;
-import com.shareway.infrastructure.adapter.audit.domain.exception.AccountBlockedException;
-import com.shareway.infrastructure.adapter.audit.domain.exception.InvalidOperationException;
-import com.shareway.infrastructure.adapter.audit.domain.exception.NotAuthorizedException;
-import com.shareway.infrastructure.adapter.audit.domain.exception.UserNotFoundException;
-import com.shareway.infrastructure.adapter.audit.domain.model.AdminRole;
-import com.shareway.infrastructure.adapter.audit.domain.model.SystemRole;
-import com.shareway.infrastructure.adapter.audit.domain.model.User;
-import com.shareway.infrastructure.adapter.audit.domain.repository.AdminRoleRepository;
-import com.shareway.infrastructure.adapter.audit.domain.repository.UserRepository;
-import com.shareway.infrastructure.adapter.audit.domain.service.UserDomainService;
+import com.shareway.domain.exception.AccountBlockedException;
+import com.shareway.domain.exception.InvalidOperationException;
+import com.shareway.domain.exception.NotAuthorizedException;
+import com.shareway.domain.exception.UserNotFoundException;
+import com.shareway.domain.model.AdminRole;
+import com.shareway.domain.model.SystemRole;
+import com.shareway.domain.model.User;
+import com.shareway.domain.repository.AdminRoleRepository;
+import com.shareway.domain.repository.UserRepository;
+import com.shareway.domain.service.UserDomainService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -41,6 +41,7 @@ public class AuthUseCase {
     private final AuditPort auditPort;
     private final TwoFaPort twoFaPort;
     private final UserMapper userMapper;
+    private final ReferralUseCase referralUseCase;
 
     public AuthResponse register(RegisterRequest req) {
         userDomainService.validateRegistration(req.getEmail());
@@ -61,6 +62,10 @@ public class AuthUseCase {
                 .build();
 
         userRepository.save(user);
+
+        if (req.getReferralCode() != null && !req.getReferralCode().isBlank()) {
+            referralUseCase.applyReferralCode(req.getReferralCode(), user.getId());
+        }
 
         emailPort.sendVerificationEmail(user.getEmail(), user.getFirstName(), verifyToken);
         auditPort.log("USER_REGISTERED", "User", user.getId(), null, user.getEmail(), user.getId());

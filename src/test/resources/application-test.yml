@@ -1,0 +1,30 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
+  mail:
+    host: localhost
+    port: 3025
+    username: test
+    password: test
+  cache:
+    type: none
+shareway:
+  stripe:
+    secret-key: sk_test_dummy
+    webhook-secret: whsec_dummy
+security:
+  jwt:
+    secret: test-secret-key-that-is-exactly-256-bits-long-for-hs256-algorithm
+    expiration: 3600000
+    refresh-expiration: 86400000

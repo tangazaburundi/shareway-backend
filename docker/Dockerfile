@@ -11,4 +11,4 @@ COPY --from=build /app/target/*.jar app.jar
 RUN mkdir -p uploads logs && chown -R shareway:shareway /app
 USER shareway
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "-Xmx512m", "-Xms256m", "app.jar"]
+ENTRYPOINT ["java", "-jar", "-Xmx512m", "-Xms256m", "-Dspring.profiles.active=prod", "app.jar"]

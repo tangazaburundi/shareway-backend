@@ -2,7 +2,7 @@ package com.shareway.application.usecase;
 
 import com.shareway.application.dto.response.NotificationResponse;
 import com.shareway.application.dto.response.PageResponse;
-import com.shareway.infrastructure.adapter.audit.domain.repository.NotificationRepository;
+import com.shareway.domain.repository.NotificationRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;

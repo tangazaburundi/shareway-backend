@@ -2,17 +2,19 @@ spring:
   application:
     name: shareway-backend
 
+  messages:
+    basename: i18n/messages
+    encoding: UTF-8
+    fallback-to-system-locale: false
+
   web:
     resources:
-      add-mappings: false   # désactive le ResourceHttpRequestHandler qui interceptait tout
-
+      add-mappings: false
 
   datasource:
-    url: jdbc:mysql://localhost:3306/shareway_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8
-    #username: ${DB_USERNAME:shareway_user}
-    #password: ${DB_PASSWORD:shareway_pass}
-    username: root
-    password:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/shareway_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       maximum-pool-size: 20
@@ -48,7 +50,7 @@ spring:
       mail.smtp.starttls.enable: true
       mail.smtp.ssl.checkserveridentity: false
       mail.smtp.ssl.trust: "*"
-  
+
   cache:
     type: caffeine
     caffeine:
@@ -69,14 +71,13 @@ server:
 
 security:
   jwt:
-    secret: ${JWT_SECRET:shareway-super-secret-key-change-in-production-minimum-256-bits}
+    secret: ${JWT_SECRET:dev-jwt-secret-key-change-in-production-minimum-256-bits}
     expiration: ${JWT_EXPIRATION:86400000}
     refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
-
-    # JWT Admin
-  admin-jwt.secret: shareway-admin-secret-key-minimum-256-bits-pour-hs256-algorithm
-  admin-jwt.expiration: 86400000
-  admin-jwt.refresh-expiration: 604800000
+  admin-jwt:
+    secret: ${ADMIN_JWT_SECRET:dev-admin-secret-key-change-in-production-256-bits}
+    expiration: ${ADMIN_JWT_EXPIRATION:86400000}
+    refresh-expiration: ${ADMIN_JWT_REFRESH_EXPIRATION:604800000}
 
 shareway:
   app:

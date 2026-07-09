@@ -1,10 +1,10 @@
 package com.shareway.infrastructure.websocket;
 
 import com.shareway.application.port.out.NotificationPort;
-import com.shareway.infrastructure.adapter.audit.domain.model.Notification;
-import com.shareway.infrastructure.adapter.audit.domain.model.User;
-import com.shareway.infrastructure.adapter.audit.domain.repository.NotificationRepository;
-import com.shareway.infrastructure.adapter.audit.domain.repository.UserRepository;
+import com.shareway.domain.model.Notification;
+import com.shareway.domain.model.User;
+import com.shareway.domain.repository.NotificationRepository;
+import com.shareway.domain.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
