@@ -1,0 +1,31 @@
+# Maven
+target/
+*.class
+*.jar
+*.war
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# Spring Boot
+*.log
+logs/
+
+# Uploads
+uploads/
+
+# Env
+.env
+*.env
+
+# Docker volumes
+mysql-data/
+
+# OS
+.DS_Store
+Thumbs.db

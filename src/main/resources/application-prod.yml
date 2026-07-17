@@ -1,32 +1,43 @@
 spring:
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/shareway_db?useSSL=true&requireSSL=true&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://mysql:3306/shareway_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8}
+    username: ${DB_USERNAME:shareway_user}
+    password: ${DB_PASSWORD:?DB_PASSWORD is required}
 
   mail:
+    host: ${MAIL_HOST:smtp-relay.brevo.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:?MAIL_USERNAME is required}
+    password: ${MAIL_PASSWORD:?MAIL_PASSWORD is required}
     properties:
-      mail.smtp.ssl.checkserveridentity: true
-      mail.smtp.ssl.trust: ${MAIL_HOST}
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 3000
+      mail.smtp.writetimeout: 5000
+      mail.smtp.ssl.trust: smtp-relay.brevo.com
 
   jpa:
     show-sql: false
 
 server:
+  port: ${PORT:8083}
   error:
     include-message: never
     include-binding-errors: never
 
 security:
   jwt:
-    secret: ${JWT_SECRET}
+    secret: ${JWT_SECRET:?JWT_SECRET is required}
   admin-jwt:
-    secret: ${ADMIN_JWT_SECRET}
+    secret: ${ADMIN_JWT_SECRET:?ADMIN_JWT_SECRET is required}
 
 shareway:
   app:
-    frontend-url: ${FRONTEND_URL}
+    frontend-url: ${FRONTEND_URL:?FRONTEND_URL is required}
   stripe:
-    secret-key: ${STRIPE_SECRET_KEY}
-    webhook-secret: ${STRIPE_WEBHOOK_SECRET}
+    secret-key: ${STRIPE_SECRET_KEY:?STRIPE_SECRET_KEY is required}
+    webhook-secret: ${STRIPE_WEBHOOK_SECRET:?STRIPE_WEBHOOK_SECRET is required}
 
 logging:
   level:

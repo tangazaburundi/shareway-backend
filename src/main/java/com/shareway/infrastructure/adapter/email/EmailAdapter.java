@@ -81,8 +81,7 @@ public class EmailAdapter implements EmailPort {
         try {
             var msg = mailSender.createMimeMessage();
             var helper = new MimeMessageHelper(msg, true, "UTF-8");
-            //helper.setFrom(from, appName);
-            helper.setFrom("thierrykub2020@gmail.com", appName);
+            helper.setFrom(from, appName);
             helper.setTo(to);
             helper.setSubject(subject);
             helper.setText(wrapHtml(htmlBody), true);
