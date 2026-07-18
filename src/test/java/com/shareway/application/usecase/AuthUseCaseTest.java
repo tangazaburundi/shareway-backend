@@ -13,6 +13,7 @@ import com.shareway.domain.exception.ResourceAlreadyExistsException;
 import com.shareway.domain.exception.UserNotFoundException;
 import com.shareway.domain.model.User;
 import com.shareway.domain.repository.AdminRoleRepository;
+import com.shareway.domain.repository.PasswordResetTokenRepository;
 import com.shareway.domain.repository.UserRepository;
 import com.shareway.domain.service.UserDomainService;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +38,7 @@ class AuthUseCaseTest {
 
     @Mock private UserRepository userRepository;
     @Mock private AdminRoleRepository adminRoleRepository;
+    @Mock private PasswordResetTokenRepository passwordResetTokenRepository;
     @Mock private UserDomainService userDomainService;
     @Mock private JwtPort jwtPort;
     @Mock private EmailPort emailPort;
@@ -54,7 +56,8 @@ class AuthUseCaseTest {
     void setUp() {
         passwordEncoder = new BCryptPasswordEncoder(4);
         authUseCase = new AuthUseCase(
-                userRepository, adminRoleRepository, userDomainService,
+                userRepository, adminRoleRepository, passwordResetTokenRepository,
+                userDomainService,
                 passwordEncoder, jwtPort, emailPort, auditPort, twoFaPort,
                 userMapper, referralUseCase
         );
