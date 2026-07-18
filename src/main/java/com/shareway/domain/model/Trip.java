@@ -227,7 +227,7 @@ public class Trip {
     }
 
     public enum TripStatus {
-        OPEN, FULL, CANCELLED, COMPLETED, PENDING, REJECTED
+        OPEN, FULL, CANCELLED, COMPLETED, PENDING, REJECTED, SUSPENDED
     }
 
     public enum TripFrequency {ONCE, WEEKLY, BIWEEKLY, MONTHLY}

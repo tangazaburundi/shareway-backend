@@ -60,6 +60,33 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.noContent("If the email exists, a reset link was sent"));
     }
 
+    @PostMapping("/resend-verification")
+    public ResponseEntity<ApiResponse<Void>> resendVerification(@RequestBody java.util.Map<String, String> body) {
+        authUseCase.resendVerification(body.get("email"));
+        return ResponseEntity.ok(ApiResponse.noContent("Verification email resent"));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<ApiResponse<Void>> resetPassword(@RequestBody java.util.Map<String, String> body) {
+        String token = body.get("token");
+        String newPassword = body.get("newPassword");
+        if (token == null || token.isBlank() || newPassword == null || newPassword.isBlank()) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("VALIDATION_ERROR", "Token and newPassword are required"));
+        }
+        authUseCase.resetPassword(token, newPassword);
+        return ResponseEntity.ok(ApiResponse.noContent("Password reset successfully"));
+    }
+
+    @PostMapping("/refresh-token")
+    public ResponseEntity<ApiResponse<AuthResponse>> refreshToken(@RequestBody java.util.Map<String, String> body) {
+        String refreshToken = body.get("refreshToken");
+        if (refreshToken == null || refreshToken.isBlank()) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("VALIDATION_ERROR", "Refresh token is required"));
+        }
+        AuthResponse response = authUseCase.refreshToken(refreshToken);
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
     @PostMapping("/admin/login")
     @Operation(summary = "Connexion administrateur (sécurité renforcée)")
     public ResponseEntity<ApiResponse<AdminAuthResponse>> adminLogin(

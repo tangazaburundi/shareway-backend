@@ -700,6 +700,58 @@ public class AdminUseCase {
         return toTripResponse(trip);
     }
 
+    public TripResponse suspendTrip(String tripId, String adminId, String reason) {
+        Trip trip = tripRepository.findByIdAndDeletedAtIsNull(tripId)
+                .orElseThrow(() -> new TripNotFoundException("Trajet introuvable: " + tripId));
+        trip.setStatus(Trip.TripStatus.SUSPENDED);
+        tripRepository.save(trip);
+        notificationPort.notify(trip.getDriver().getId(), "SYSTEM", "Trajet suspendu",
+                "Votre trajet " + trip.getDepartureCity() + " → " + trip.getArrivalCity() + " a été suspendu." +
+                        (reason != null ? " Raison: " + reason : ""));
+        emailPort.sendGeneral(trip.getDriver().getEmail(), "Trajet suspendu - ShareWay",
+                "Bonjour " + trip.getDriver().getFirstName() + ",\n\nVotre trajet " +
+                        trip.getDepartureCity() + " → " + trip.getArrivalCity() +
+                        " a été suspendu par un administrateur." +
+                        (reason != null ? "\nRaison: " + reason : ""));
+        auditPort.log("TRIP_SUSPENDED", "Trip", tripId, null, reason, adminId);
+        return toTripResponse(trip);
+    }
+
+    public TripResponse reactivateTrip(String tripId, String adminId) {
+        Trip trip = tripRepository.findByIdAndDeletedAtIsNull(tripId)
+                .orElseThrow(() -> new TripNotFoundException("Trajet introuvable: " + tripId));
+        trip.setStatus(Trip.TripStatus.OPEN);
+        tripRepository.save(trip);
+        notificationPort.notify(trip.getDriver().getId(), "SYSTEM", "Trajet réactivé",
+                "Votre trajet " + trip.getDepartureCity() + " → " + trip.getArrivalCity() + " a été réactivé.");
+        auditPort.log("TRIP_REACTIVATED", "Trip", tripId, null, null, adminId);
+        return toTripResponse(trip);
+    }
+
+    public void softDeleteTrip(String tripId, String adminId, String reason) {
+        Trip trip = tripRepository.findByIdAndDeletedAtIsNull(tripId)
+                .orElseThrow(() -> new TripNotFoundException("Trajet introuvable: " + tripId));
+        trip.setStatus(Trip.TripStatus.CANCELLED);
+        trip.softDelete(adminId);
+        tripRepository.save(trip);
+        notificationPort.notify(trip.getDriver().getId(), "SYSTEM", "Trajet supprimé",
+                "Votre trajet " + trip.getDepartureCity() + " → " + trip.getArrivalCity() + " a été supprimé par un administrateur." +
+                        (reason != null ? " Raison: " + reason : ""));
+        emailPort.sendGeneral(trip.getDriver().getEmail(), "Trajet supprimé - ShareWay",
+                "Bonjour " + trip.getDriver().getFirstName() + ",\n\nVotre trajet " +
+                        trip.getDepartureCity() + " → " + trip.getArrivalCity() +
+                        " a été supprimé par un administrateur." +
+                        (reason != null ? "\nRaison: " + reason : ""));
+        auditPort.log("TRIP_DELETED", "Trip", tripId, null, reason, adminId);
+    }
+
+    @Transactional(readOnly = true)
+    public TripResponse getTripDetail(String tripId) {
+        Trip trip = tripRepository.findByIdAndDeletedAtIsNull(tripId)
+                .orElseThrow(() -> new TripNotFoundException("Trajet introuvable: " + tripId));
+        return toTripResponse(trip);
+    }
+
     private TripResponse toTripResponse(Trip t) {
         TripUserResponse driverResp = null;
         if (t.getDriver() != null) {

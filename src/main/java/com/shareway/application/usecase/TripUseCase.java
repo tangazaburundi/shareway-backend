@@ -394,6 +394,7 @@ import com.shareway.application.dto.response.TripResponse;
 import com.shareway.application.dto.response.TripUserResponse;
 import com.shareway.application.mapper.TripHistoryMapper;
 import com.shareway.application.port.out.AuditPort;
+import com.shareway.application.port.out.EmailPort;
 import com.shareway.application.port.out.NotificationPort;
 import com.shareway.domain.event.TripCancelledEvent;
 import com.shareway.domain.exception.BookingNotFoundException;
@@ -444,6 +445,7 @@ public class TripUseCase {
     private final ApplicationEventPublisher eventPublisher;
     private final AuditPort auditPort;
     private final NotificationPort notificationPort;
+    private final EmailPort emailPort;
     private final TripEditHistoryRepository tripEditHistoryRepository;
     private final TripHistoryMapper tripHistoryMapper;
     private final StripeUseCase stripeUseCase;
@@ -670,6 +672,15 @@ public class TripUseCase {
                     "Le conducteur " + trip.getDriver().getFirstName() + " a accepté votre réservation pour " + trip.getArrivalCity(),
                     "/my-bookings"
             );
+
+            String tripInfo = "Trajet : " + trip.getDepartureCity() + " → " + trip.getArrivalCity()
+                    + "\nDate : " + trip.getDepartureTime()
+                    + "\nPrix : " + trip.getPricePerSeat() + " " + trip.getCurrency()
+                    + "\nPlaces réservées : " + booking.getSeatsBooked();
+            emailPort.sendBookingConfirmation(
+                    booking.getPassenger().getEmail(),
+                    booking.getPassenger().getFirstName(),
+                    tripInfo);
         } else {
             if (req.getReason() == null || req.getReason().isBlank())
                 throw new InvalidOperationException("Une raison est requise pour refuser une réservation");
@@ -738,6 +749,14 @@ public class TripUseCase {
             notificationPort.notify(b.getPassenger().getId(), "CANCELLATION",
                     "Trajet annulé",
                     "Votre trajet vers " + trip.getArrivalCity() + " a été annulé par le conducteur");
+
+            String tripInfo = "Trajet annulé : " + trip.getDepartureCity() + " → " + trip.getArrivalCity()
+                    + "\nDate prévue : " + trip.getDepartureTime();
+            emailPort.sendTripCancellation(
+                    b.getPassenger().getEmail(),
+                    b.getPassenger().getFirstName(),
+                    tripInfo,
+                    reason != null ? reason : "Aucune raison précisée");
         });
 
         trip.cancel(driverId);

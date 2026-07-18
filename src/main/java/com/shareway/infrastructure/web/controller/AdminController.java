@@ -262,6 +262,40 @@ public class AdminController {
                 adminUseCase.rejectTrip(id, SecurityUtils.currentUserId(), reason), "Trip rejected"));
     }
 
+    @PostMapping("/trips/{id}/suspend")
+    @Operation(summary = "Suspendre un voyage")
+    public ResponseEntity<ApiResponse<TripResponse>> suspendTrip(
+            @PathVariable String id,
+            @RequestBody(required = false) Map<String, String> body) {
+        String reason = body != null ? body.get("reason") : null;
+        return ResponseEntity.ok(ApiResponse.ok(
+                adminUseCase.suspendTrip(id, SecurityUtils.currentUserId(), reason), "Trip suspended"));
+    }
+
+    @PostMapping("/trips/{id}/reactivate")
+    @Operation(summary = "Réactiver un voyage suspendu")
+    public ResponseEntity<ApiResponse<TripResponse>> reactivateTrip(@PathVariable String id) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                adminUseCase.reactivateTrip(id, SecurityUtils.currentUserId()), "Trip reactivated"));
+    }
+
+    @DeleteMapping("/trips/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
+    @Operation(summary = "Supprimer un voyage (soft delete)")
+    public ResponseEntity<ApiResponse<Void>> deleteTrip(
+            @PathVariable String id,
+            @RequestBody(required = false) Map<String, String> body) {
+        String reason = body != null ? body.get("reason") : null;
+        adminUseCase.softDeleteTrip(id, SecurityUtils.currentUserId(), reason);
+        return ResponseEntity.ok(ApiResponse.noContent("Trip deleted"));
+    }
+
+    @GetMapping("/trips/{id}")
+    @Operation(summary = "Détail d'un voyage")
+    public ResponseEntity<ApiResponse<TripResponse>> getTripDetail(@PathVariable String id) {
+        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getTripDetail(id)));
+    }
+
     @PostMapping("/settings/{key}")
     @Operation(summary = "Modifier un paramètre système")
     public ResponseEntity<ApiResponse<Void>> updateSetting(

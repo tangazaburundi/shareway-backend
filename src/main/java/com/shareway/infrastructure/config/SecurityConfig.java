@@ -43,6 +43,8 @@ public class SecurityConfig {
                         // ── Auth publique ──────────────────────────────────────────────
                         .requestMatchers(HttpMethod.POST,
                                 "/auth/login", "/auth/register", "/auth/forgot-password",
+                                "/auth/reset-password", "/auth/refresh-token",
+                                "/auth/resend-verification",
                                 "/auth/admin/login").permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/auth/verify-email/**").permitAll()
@@ -101,11 +103,8 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOriginPatterns(List.of(
-                "http://localhost:4200",
-                "http://localhost:4201",
-                frontendUrl
-        ));
+        String frontendUrlClean = frontendUrl != null ? frontendUrl.trim() : "";
+        config.setAllowedOriginPatterns(List.of(frontendUrlClean));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);

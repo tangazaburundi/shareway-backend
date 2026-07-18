@@ -2,7 +2,9 @@ package com.shareway.infrastructure.web.advice;
 
 import com.shareway.application.dto.response.ApiResponse;
 import com.shareway.domain.exception.AccountBlockedException;
+import com.shareway.domain.exception.AdvertisingNotFoundException;
 import com.shareway.domain.exception.BookingNotFoundException;
+import com.shareway.domain.exception.CancelBookingException;
 import com.shareway.domain.exception.DomainException;
 import com.shareway.domain.exception.InsufficientSeatsException;
 import com.shareway.domain.exception.InvalidOperationException;
@@ -100,6 +102,18 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleReviewNotFound(ReviewNotFoundException e, HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ApiResponse.error("NOT_FOUND", resolveMessage(e, request)));
+    }
+
+    @ExceptionHandler(AdvertisingNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAdvertisingNotFound(AdvertisingNotFoundException e, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error("NOT_FOUND", resolveMessage(e, request)));
+    }
+
+    @ExceptionHandler(CancelBookingException.class)
+    public ResponseEntity<ApiResponse<Void>> handleCancelBooking(CancelBookingException e, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error("CANCEL_BOOKING_ERROR", resolveMessage(e, request)));
     }
 
     @ExceptionHandler(NotAuthorizedException.class)
