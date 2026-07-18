@@ -124,6 +124,17 @@ public class User {
     @Column(name = "identity_verified_by")
     private String identityVerifiedBy;
 
+    // Admin approval
+    @Column(name = "admin_approved")
+    @Builder.Default
+    private boolean adminApproved = false;
+
+    @Column(name = "admin_approved_at")
+    private LocalDateTime adminApprovedAt;
+
+    @Column(name = "admin_approved_by")
+    private String adminApprovedBy;
+
     // 2FA
     @Column(name = "two_fa_enabled")
     @Builder.Default
@@ -241,6 +252,18 @@ public class User {
         this.identityVerified = true;
         this.identityVerifiedAt = LocalDateTime.now();
         this.identityVerifiedBy = adminId;
+    }
+
+    public void approveByAdmin(String adminId) {
+        this.adminApproved = true;
+        this.adminApprovedAt = LocalDateTime.now();
+        this.adminApprovedBy = adminId;
+    }
+
+    public void rejectByAdmin() {
+        this.adminApproved = false;
+        this.adminApprovedAt = null;
+        this.adminApprovedBy = null;
     }
 
     public void updateRating(int newRating) {

@@ -37,6 +37,9 @@ public interface UserRepository extends JpaRepository<User, String>, JpaSpecific
     @Query("SELECT COUNT(u) FROM User u WHERE u.deletedAt IS NULL AND u.active = true")
     long countActiveUsers();
 
+    @Query("SELECT COUNT(u) FROM User u WHERE u.deletedAt IS NULL AND (u.role = 'DRIVER' OR u.role = 'BOTH')")
+    long countDrivers();
+
     @Query("SELECT COUNT(u) FROM User u WHERE FUNCTION('DATE', u.createdAt) = CURRENT_DATE")
     long countNewUsersToday();
 

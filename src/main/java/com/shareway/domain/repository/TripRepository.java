@@ -35,6 +35,9 @@ public interface TripRepository extends JpaRepository<Trip, String>, JpaSpecific
     @Query("SELECT COUNT(t) FROM Trip t WHERE t.status = 'OPEN' AND t.deletedAt IS NULL")
     long countOpen();
 
+    @Query("SELECT COUNT(t) FROM Trip t WHERE t.status = 'COMPLETED' AND t.deletedAt IS NULL")
+    long countAllCompleted();
+
     @Query("SELECT COUNT(t) FROM Trip t WHERE FUNCTION('DATE', t.createdAt) = CURRENT_DATE AND t.deletedAt IS NULL")
     long countCreatedToday();
 
@@ -51,7 +54,8 @@ public interface TripRepository extends JpaRepository<Trip, String>, JpaSpecific
      */
     @Query("""
             SELECT DISTINCT t FROM Trip t
-            LEFT JOIN t.preferences p
+            JOIN FETCH t.driver
+            LEFT JOIN FETCH t.preferences pr
             WHERE t.deletedAt IS NULL
               AND t.status = 'OPEN'
               AND LOWER(t.departureCity) LIKE LOWER(CONCAT('%', :departureCity, '%'))
@@ -61,9 +65,9 @@ public interface TripRepository extends JpaRepository<Trip, String>, JpaSpecific
               AND t.availableSeats >= :seats
               AND (:maxPrice      IS NULL OR t.pricePerSeat <= :maxPrice)
               AND (:minRating     IS NULL OR t.driver.rating >= :minRating)
-              AND (:smallLuggage  IS NULL OR :smallLuggage = false OR (p IS NOT NULL AND p.smallLuggage = true))
-              AND (:largeLuggage  IS NULL OR :largeLuggage = false OR (p IS NOT NULL AND p.largeLuggage = true))
-              AND (:pets          IS NULL OR :pets          = false OR (p IS NOT NULL AND p.pets         = true))
+              AND (:smallLuggage  IS NULL OR :smallLuggage = false OR (pr IS NOT NULL AND pr.smallLuggage = true))
+              AND (:largeLuggage  IS NULL OR :largeLuggage = false OR (pr IS NOT NULL AND pr.largeLuggage = true))
+              AND (:pets          IS NULL OR :pets          = false OR (pr IS NOT NULL AND pr.pets         = true))
             ORDER BY t.departureTime ASC
             """)
     Page<Trip> search(

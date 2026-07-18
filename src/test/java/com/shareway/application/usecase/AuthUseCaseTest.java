@@ -110,6 +110,8 @@ class AuthUseCaseTest {
                 .email("john@example.com")
                 .passwordHash(passwordEncoder.encode("password123"))
                 .role(User.UserRole.DRIVER)
+                .emailVerified(true)
+                .adminApproved(true)
                 .build();
 
         when(userRepository.findByEmailAndDeletedAtIsNull("john@example.com"))
@@ -194,6 +196,8 @@ class AuthUseCaseTest {
                 .passwordHash(passwordEncoder.encode("password123"))
                 .twoFaEnabled(true)
                 .twoFaSecret("secret-key")
+                .emailVerified(true)
+                .adminApproved(true)
                 .build();
 
         when(userRepository.findByEmailAndDeletedAtIsNull("john@example.com"))
@@ -223,6 +227,8 @@ class AuthUseCaseTest {
                 .passwordHash(passwordEncoder.encode("password123"))
                 .twoFaEnabled(true)
                 .twoFaSecret("secret-key")
+                .emailVerified(true)
+                .adminApproved(true)
                 .build();
 
         when(userRepository.findByEmailAndDeletedAtIsNull("john@example.com"))

@@ -12,7 +12,10 @@ import com.shareway.application.dto.response.ReportResponse;
 import com.shareway.application.dto.response.ReviewAuthorResponse;
 import com.shareway.application.dto.response.ReviewResponse;
 import com.shareway.application.dto.response.UserResponse;
+import com.shareway.application.dto.response.TripResponse;
+import com.shareway.application.dto.response.TripUserResponse;
 import com.shareway.application.port.out.AuditPort;
+import com.shareway.application.port.out.EmailPort;
 import com.shareway.application.port.out.ExportPort;
 import com.shareway.application.port.out.NotificationPort;
 import com.shareway.application.port.out.TwoFaPort;
@@ -20,11 +23,13 @@ import com.shareway.domain.exception.AccountBlockedException;
 import com.shareway.domain.exception.InvalidOperationException;
 import com.shareway.domain.exception.NotAuthorizedException;
 import com.shareway.domain.exception.ReviewNotFoundException;
+import com.shareway.domain.exception.TripNotFoundException;
 import com.shareway.domain.exception.UserNotFoundException;
 import com.shareway.domain.model.AdminRole;
 import com.shareway.domain.model.Message;
 import com.shareway.domain.model.Report;
 import com.shareway.domain.model.Review;
+import com.shareway.domain.model.RoleRequest;
 import com.shareway.domain.model.Trip;
 import com.shareway.domain.model.User;
 import com.shareway.domain.repository.AdminRoleRepository;
@@ -33,6 +38,8 @@ import com.shareway.domain.repository.BookingRepository;
 import com.shareway.domain.repository.MessageRepository;
 import com.shareway.domain.repository.ReportRepository;
 import com.shareway.domain.repository.ReviewRepository;
+import com.shareway.domain.repository.RoleRequestRepository;
+import com.shareway.domain.repository.SystemSettingRepository;
 import com.shareway.domain.repository.TripRepository;
 import com.shareway.domain.repository.UserRepository;
 import com.shareway.infrastructure.adapter.specification.UserSpecifications;
@@ -105,16 +112,15 @@ public class AdminUseCase {
     private final NotificationPort notificationPort;
     private final AuditPort auditPort;
     private final ExportPort exportPort;
-    // private final UserRepository userRepository;
+    private final EmailPort emailPort;
     private final AdminRoleRepository adminRoleRepository;
     private final PasswordEncoder passwordEncoder;
     private final AdminJwtService adminJwtService;
     private final TwoFaPort twoFaPort;
-
-    /////////////////////
-    // private final AuditPort auditPort;
+    private final RoleRequestRepository roleRequestRepository;
     private final EntityManager em;
     private final ObjectMapper objectMapper;
+    private final SystemSettingRepository systemSettingRepository;
     @Value("${security.admin-auth.max-attempts:5}")
     private int maxAttempts;
     @Value("${security.admin-auth.lock-minutes:15}")
@@ -520,6 +526,7 @@ public class AdminUseCase {
                 .emailVerified(u.isEmailVerified()).phoneVerified(u.isPhoneVerified())
                 .identityVerified(u.isIdentityVerified()).active(u.isActive())
                 .blocked(u.isBlocked()).blockReason(u.getBlockReason())
+                .adminApproved(u.isAdminApproved())
                 .rating(u.getRating()).reviewCount(u.getReviewCount())
                 .createdAt(u.getCreatedAt()).lastLoginAt(u.getLastLoginAt()).build();
     }
@@ -546,5 +553,184 @@ public class AdminUseCase {
                 .reason(r.getReason().name()).description(r.getDescription())
                 .status(r.getStatus().name()).actionTaken(r.getActionTaken())
                 .createdAt(r.getCreatedAt()).build();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // APPROBATION / REJET UTILISATEURS
+    // ═══════════════════════════════════════════════════════════
+
+    public UserResponse approveUser(String userId, String adminId) {
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
+                .orElseThrow(() -> new UserNotFoundException("Utilisateur introuvable: " + userId));
+        user.approveByAdmin(adminId);
+        userRepository.save(user);
+        notificationPort.notify(userId, "SYSTEM", "Compte approuvé",
+                "Votre compte a été approuvé par un administrateur. Vous pouvez maintenant vous connecter.");
+        emailPort.sendGeneral(user.getEmail(), "Votre compte ShareWay a été approuvé",
+                "Bonjour " + user.getFirstName() + ",\n\nVotre compte a été approuvé par un administrateur. " +
+                        "Vous pouvez maintenant vous connecter et utiliser toutes les fonctionnalités de ShareWay.");
+        auditPort.log("USER_APPROVED", "User", userId, null, null, adminId);
+        return toUserResponse(user);
+    }
+
+    public UserResponse rejectUser(String userId, String adminId, String reason) {
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
+                .orElseThrow(() -> new UserNotFoundException("Utilisateur introuvable: " + userId));
+        user.rejectByAdmin();
+        userRepository.save(user);
+        notificationPort.notify(userId, "SYSTEM", "Compte rejeté",
+                "Votre compte a été rejeté par un administrateur." + (reason != null ? " Raison: " + reason : ""));
+        emailPort.sendGeneral(user.getEmail(), "Votre compte ShareWay n'a pas été approuvé",
+                "Bonjour " + user.getFirstName() + ",\n\nVotre compte n'a pas été approuvé par un administrateur." +
+                        (reason != null ? "\nRaison: " + reason : "") +
+                        "\n\nSi vous pensez qu'il s'agit d'une erreur, contactez le support.");
+        auditPort.log("USER_REJECTED", "User", userId, null, reason, adminId);
+        return toUserResponse(user);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // CHANGEMENT DE RÔLE UTILISATEUR
+    // ═══════════════════════════════════════════════════════════
+
+    public UserResponse changeUserRole(String userId, String newRole, String adminId) {
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
+                .orElseThrow(() -> new UserNotFoundException("Utilisateur introuvable: " + userId));
+        User.UserRole oldRole = user.getRole();
+        user.setRole(User.UserRole.valueOf(newRole));
+        userRepository.save(user);
+        auditPort.log("ROLE_CHANGED", "User", userId, oldRole.name(), newRole, adminId);
+        return toUserResponse(user);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // DEMANDES DE RÔLE
+    // ═══════════════════════════════════════════════════════════
+
+    @Transactional(readOnly = true)
+    public PageResponse<RoleRequest> getRoleRequests(String status, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Page<RoleRequest> requests = status != null
+                ? roleRequestRepository.findByStatusOrderByCreatedAtDesc(
+                    RoleRequest.Status.valueOf(status), pageable)
+                : roleRequestRepository.findAllByOrderByCreatedAtDesc(pageable);
+        return PageResponse.from(requests);
+    }
+
+    @Transactional(readOnly = true)
+    public List<RoleRequest> getMyRoleRequests(String userId) {
+        return roleRequestRepository.findByUserIdOrderByCreatedAtDesc(userId);
+    }
+
+    public RoleRequest approveRoleRequest(String requestId, String adminId, String comment) {
+        RoleRequest request = roleRequestRepository.findById(requestId)
+                .orElseThrow(() -> new InvalidOperationException("Demande introuvable"));
+        request.approve(adminId, comment);
+        roleRequestRepository.save(request);
+
+        User user = userRepository.findByIdAndDeletedAtIsNull(request.getUserId())
+                .orElseThrow(() -> new UserNotFoundException("Utilisateur introuvable"));
+        user.setRole(request.getRequestedRole());
+        userRepository.save(user);
+
+        notificationPort.notify(request.getUserId(), "SYSTEM", "Demande de rôle approuvée",
+                "Votre demande pour devenir " + request.getRequestedRole() + " a été approuvée.");
+        emailPort.sendGeneral(user.getEmail(), "Votre demande de rôle ShareWay a été approuvée",
+                "Bonjour " + user.getFirstName() + ",\n\nVotre demande pour devenir " +
+                        request.getRequestedRole() + " a été approuvée. " +
+                        "Vous pouvez maintenant " + (request.getRequestedRole() == User.UserRole.PASSENGER ? "réserver des trajets" : "proposer des trajets") + ".");
+        auditPort.log("ROLE_REQUEST_APPROVED", "RoleRequest", requestId, null, request.getRequestedRole().name(), adminId);
+        return request;
+    }
+
+    public RoleRequest rejectRoleRequest(String requestId, String adminId, String comment) {
+        RoleRequest request = roleRequestRepository.findById(requestId)
+                .orElseThrow(() -> new InvalidOperationException("Demande introuvable"));
+        request.reject(adminId, comment);
+        roleRequestRepository.save(request);
+
+        User user = userRepository.findByIdAndDeletedAtIsNull(request.getUserId())
+                .orElseThrow(() -> new UserNotFoundException("Utilisateur introuvable"));
+        notificationPort.notify(request.getUserId(), "SYSTEM", "Demande de rôle rejetée",
+                "Votre demande pour devenir " + request.getRequestedRole() + " a été rejetée." +
+                        (comment != null ? " Raison: " + comment : ""));
+        emailPort.sendGeneral(user.getEmail(), "Votre demande de rôle ShareWay n'a pas été approuvée",
+                "Bonjour " + user.getFirstName() + ",\n\nVotre demande pour devenir " +
+                        request.getRequestedRole() + " n'a pas été approuvée." +
+                        (comment != null ? "\nRaison: " + comment : ""));
+        auditPort.log("ROLE_REQUEST_REJECTED", "RoleRequest", requestId, null, comment, adminId);
+        return request;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // GESTION DES VOYAGES
+    // ═══════════════════════════════════════════════════════════
+
+    @Transactional(readOnly = true)
+    public PageResponse<TripResponse> getAllTrips(String status, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by("departureTime").descending());
+        Page<Trip> trips = status != null
+                ? tripRepository.findByStatus(Trip.TripStatus.valueOf(status), pageable)
+                : tripRepository.findAll(pageable);
+        return PageResponse.from(trips.map(this::toTripResponse));
+    }
+
+    public TripResponse approveTrip(String tripId, String adminId) {
+        Trip trip = tripRepository.findByIdAndDeletedAtIsNull(tripId)
+                .orElseThrow(() -> new TripNotFoundException("Trajet introuvable: " + tripId));
+        trip.setStatus(Trip.TripStatus.OPEN);
+        tripRepository.save(trip);
+        auditPort.log("TRIP_APPROVED", "Trip", tripId, null, null, adminId);
+        return toTripResponse(trip);
+    }
+
+    public TripResponse rejectTrip(String tripId, String adminId, String reason) {
+        Trip trip = tripRepository.findByIdAndDeletedAtIsNull(tripId)
+                .orElseThrow(() -> new TripNotFoundException("Trajet introuvable: " + tripId));
+        trip.setStatus(Trip.TripStatus.REJECTED);
+        tripRepository.save(trip);
+        notificationPort.notify(trip.getDriver().getId(), "SYSTEM", "Trajet rejeté",
+                "Votre trajet " + trip.getDepartureCity() + " → " + trip.getArrivalCity() + " a été rejeté." +
+                        (reason != null ? " Raison: " + reason : ""));
+        emailPort.sendGeneral(trip.getDriver().getEmail(), "Trajet rejeté - ShareWay",
+                "Bonjour " + trip.getDriver().getFirstName() + ",\n\nVotre trajet " +
+                        trip.getDepartureCity() + " → " + trip.getArrivalCity() +
+                        " a été rejeté par un administrateur." +
+                        (reason != null ? "\nRaison: " + reason : ""));
+        auditPort.log("TRIP_REJECTED", "Trip", tripId, null, reason, adminId);
+        return toTripResponse(trip);
+    }
+
+    private TripResponse toTripResponse(Trip t) {
+        TripUserResponse driverResp = null;
+        if (t.getDriver() != null) {
+            var d = t.getDriver();
+            driverResp = TripUserResponse.builder()
+                    .id(d.getId())
+                    .firstName(d.getFirstName())
+                    .lastName(d.getLastName())
+                    .phone(d.getPhone())
+                    .avatarUrl(d.getAvatarUrl())
+                    .build();
+        }
+        return TripResponse.builder()
+                .id(t.getId())
+                .departureCity(t.getDepartureCity()).arrivalCity(t.getArrivalCity())
+                .departureAddress(t.getDepartureAddress()).arrivalAddress(t.getArrivalAddress())
+                .departureTime(t.getDepartureTime()).arrivalTime(t.getArrivalTime())
+                .totalSeats(t.getTotalSeats()).availableSeats(t.getAvailableSeats())
+                .pricePerSeat(t.getPricePerSeat()).currency(t.getCurrency().name())
+                .description(t.getDescription()).status(t.getStatus().name())
+                .recurring(t.isRecurring()).frequency(t.getFrequency() != null ? t.getFrequency().name() : null)
+                .createdAt(t.getCreatedAt())
+                .driver(driverResp)
+                .build();
+    }
+
+    @Transactional
+    public void updateSystemSetting(String key, String value) {
+        var setting = systemSettingRepository.findByKey(key)
+                .orElse(com.shareway.domain.model.SystemSetting.builder().key(key).build());
+        setting.setValue(value);
+        systemSettingRepository.save(setting);
     }
 }

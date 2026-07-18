@@ -83,6 +83,7 @@ shareway:
   app:
     name: Shareway
     frontend-url: ${FRONTEND_URL:http://localhost:4200}
+    backend-url: ${BACKEND_URL:http://localhost:8084}
     upload-dir: ${UPLOAD_DIR:./uploads}
   stripe:
     secret-key: ${STRIPE_SECRET_KEY:sk_test_placeholder}

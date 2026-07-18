@@ -90,6 +90,12 @@ public class AuthUseCase {
         if (user.isBlocked())
             throw new AccountBlockedException("Account blocked: " + user.getBlockReason());
 
+        if (!user.isEmailVerified())
+            throw new NotAuthorizedException("Vérifiez votre email d'abord. Un lien de validation vous a été envoyé.");
+
+        if (!user.isAdminApproved())
+            throw new NotAuthorizedException("Votre compte est en attente de validation par un administrateur.");
+
         if (user.isTwoFaEnabled()) {
             if (req.getTwoFaCode() == null || req.getTwoFaCode().isBlank()) {
                 String sessionToken = jwtPort.generateTwoFaSessionToken(user.getId());

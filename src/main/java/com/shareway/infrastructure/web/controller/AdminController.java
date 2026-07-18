@@ -8,8 +8,10 @@ import com.shareway.application.dto.response.MessageResponse;
 import com.shareway.application.dto.response.PageResponse;
 import com.shareway.application.dto.response.ReportResponse;
 import com.shareway.application.dto.response.ReviewResponse;
+import com.shareway.application.dto.response.TripResponse;
 import com.shareway.application.dto.response.UserResponse;
 import com.shareway.application.usecase.AdminUseCase;
+import com.shareway.domain.model.RoleRequest;
 import com.shareway.infrastructure.security.SecurityUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -24,11 +26,13 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -167,5 +171,103 @@ public class AdminController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size) {
         return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getAuditLogs(userId, page, size)));
+    }
+
+    // ===== APPROBATION / REJET UTILISATEURS =====
+    @PostMapping("/users/{id}/approve")
+    @Operation(summary = "Approuver un compte utilisateur")
+    public ResponseEntity<ApiResponse<UserResponse>> approveUser(@PathVariable String id) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                adminUseCase.approveUser(id, SecurityUtils.currentUserId()), "User approved"));
+    }
+
+    @PostMapping("/users/{id}/reject")
+    @Operation(summary = "Rejeter un compte utilisateur")
+    public ResponseEntity<ApiResponse<UserResponse>> rejectUser(
+            @PathVariable String id,
+            @RequestBody(required = false) Map<String, String> body) {
+        String reason = body != null ? body.get("reason") : null;
+        return ResponseEntity.ok(ApiResponse.ok(
+                adminUseCase.rejectUser(id, SecurityUtils.currentUserId(), reason), "User rejected"));
+    }
+
+    @PutMapping("/users/{id}/role")
+    @Operation(summary = "Changer le rôle d'un utilisateur")
+    public ResponseEntity<ApiResponse<UserResponse>> changeUserRole(
+            @PathVariable String id, @RequestBody Map<String, String> body) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                adminUseCase.changeUserRole(id, body.get("role"), SecurityUtils.currentUserId()), "Role updated"));
+    }
+
+    // ===== DEMANDES DE RÔLE =====
+    @GetMapping("/role-requests")
+    @Operation(summary = "Liste des demandes de rôle avec filtre")
+    public ResponseEntity<ApiResponse<PageResponse<RoleRequest>>> getRoleRequests(
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getRoleRequests(status, page, size)));
+    }
+
+    @GetMapping("/role-requests/user/{userId}")
+    @Operation(summary = "Demandes de rôle d'un utilisateur")
+    public ResponseEntity<ApiResponse<List<RoleRequest>>> getMyRoleRequests(@PathVariable String userId) {
+        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getMyRoleRequests(userId)));
+    }
+
+    @PostMapping("/role-requests/{id}/approve")
+    @Operation(summary = "Approuver une demande de rôle")
+    public ResponseEntity<ApiResponse<RoleRequest>> approveRoleRequest(
+            @PathVariable String id,
+            @RequestBody(required = false) Map<String, String> body) {
+        String comment = body != null ? body.get("comment") : null;
+        return ResponseEntity.ok(ApiResponse.ok(
+                adminUseCase.approveRoleRequest(id, SecurityUtils.currentUserId(), comment), "Role request approved"));
+    }
+
+    @PostMapping("/role-requests/{id}/reject")
+    @Operation(summary = "Rejeter une demande de rôle")
+    public ResponseEntity<ApiResponse<RoleRequest>> rejectRoleRequest(
+            @PathVariable String id,
+            @RequestBody(required = false) Map<String, String> body) {
+        String comment = body != null ? body.get("comment") : null;
+        return ResponseEntity.ok(ApiResponse.ok(
+                adminUseCase.rejectRoleRequest(id, SecurityUtils.currentUserId(), comment), "Role request rejected"));
+    }
+
+    // ===== GESTION DES VOYAGES =====
+    @GetMapping("/trips")
+    @Operation(summary = "Liste de tous les voyages avec filtre par statut")
+    public ResponseEntity<ApiResponse<PageResponse<TripResponse>>> getAllTrips(
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getAllTrips(status, page, size)));
+    }
+
+    @PostMapping("/trips/{id}/approve")
+    @Operation(summary = "Approuver un voyage")
+    public ResponseEntity<ApiResponse<TripResponse>> approveTrip(@PathVariable String id) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                adminUseCase.approveTrip(id, SecurityUtils.currentUserId()), "Trip approved"));
+    }
+
+    @PostMapping("/trips/{id}/reject")
+    @Operation(summary = "Rejeter un voyage")
+    public ResponseEntity<ApiResponse<TripResponse>> rejectTrip(
+            @PathVariable String id,
+            @RequestBody(required = false) Map<String, String> body) {
+        String reason = body != null ? body.get("reason") : null;
+        return ResponseEntity.ok(ApiResponse.ok(
+                adminUseCase.rejectTrip(id, SecurityUtils.currentUserId(), reason), "Trip rejected"));
+    }
+
+    @PostMapping("/settings/{key}")
+    @Operation(summary = "Modifier un paramètre système")
+    public ResponseEntity<ApiResponse<Void>> updateSetting(
+            @PathVariable String key,
+            @RequestBody Map<String, String> body) {
+        adminUseCase.updateSystemSetting(key, body.get("value"));
+        return ResponseEntity.ok(ApiResponse.noContent("Setting updated"));
     }
 }

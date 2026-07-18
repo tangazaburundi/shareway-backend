@@ -42,7 +42,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // ── Auth publique ──────────────────────────────────────────────
                         .requestMatchers(HttpMethod.POST,
-                                "/auth/login", "/auth/register", "/auth/forgot-password").permitAll()
+                                "/auth/login", "/auth/register", "/auth/forgot-password",
+                                "/auth/admin/login").permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/auth/verify-email/**").permitAll()
 
@@ -56,9 +57,19 @@ public class SecurityConfig {
                         // ── Avis publics ───────────────────────────────────────────────
                         .requestMatchers(HttpMethod.GET, "/reviews/user/**").permitAll()
 
+                        // ── Contact & Newsletter ─────────────────────────────────────
+                        .requestMatchers(HttpMethod.POST, "/contact", "/newsletter").permitAll()
+
                         // ── Publicités ──────────────────────────────────────────────
                         .requestMatchers(HttpMethod.GET, "/public/ads/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/public/ads/{id}/click").permitAll()
+
+                        // ── Stats publiques ────────────────────────────────────────
+                        .requestMatchers(HttpMethod.GET, "/public/stats").permitAll()
+
+                        // ── Visitors analytics ─────────────────────────────────────
+                        .requestMatchers(HttpMethod.POST, "/visits").permitAll()
+                        .requestMatchers(HttpMethod.PATCH, "/visits/cookies").permitAll()
 
                         // ── Fichiers statiques ─────────────────────────────────────────
                         .requestMatchers("/static-files/**").permitAll()

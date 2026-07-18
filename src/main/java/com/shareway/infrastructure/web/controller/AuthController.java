@@ -1,9 +1,12 @@
 package com.shareway.infrastructure.web.controller;
 
+import com.shareway.application.dto.request.AdminLoginRequest;
 import com.shareway.application.dto.request.LoginRequest;
 import com.shareway.application.dto.request.RegisterRequest;
 import com.shareway.application.dto.response.ApiResponse;
+import com.shareway.application.dto.response.AdminAuthResponse;
 import com.shareway.application.dto.response.AuthResponse;
+import com.shareway.application.usecase.AdminUseCase;
 import com.shareway.application.usecase.AuthUseCase;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -26,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthUseCase authUseCase;
+    private final AdminUseCase adminUseCase;
 
     @PostMapping("/register")
     @Operation(summary = "Créer un compte")
@@ -54,5 +58,14 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> forgotPassword(@RequestBody java.util.Map<String, String> body) {
         authUseCase.forgotPassword(body.get("email"));
         return ResponseEntity.ok(ApiResponse.noContent("If the email exists, a reset link was sent"));
+    }
+
+    @PostMapping("/admin/login")
+    @Operation(summary = "Connexion administrateur (sécurité renforcée)")
+    public ResponseEntity<ApiResponse<AdminAuthResponse>> adminLogin(
+            @Valid @RequestBody AdminLoginRequest req, HttpServletRequest httpReq) {
+        String ip = httpReq.getRemoteAddr();
+        String ua = httpReq.getHeader("User-Agent");
+        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.login(req, ip, ua)));
     }
 }
