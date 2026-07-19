@@ -30,6 +30,7 @@ import com.shareway.domain.model.Message;
 import com.shareway.domain.model.Report;
 import com.shareway.domain.model.Review;
 import com.shareway.domain.model.RoleRequest;
+import com.shareway.domain.model.SystemRole;
 import com.shareway.domain.model.Trip;
 import com.shareway.domain.model.User;
 import com.shareway.domain.repository.AdminRoleRepository;
@@ -520,13 +521,16 @@ public class AdminUseCase {
 
     // ===== Mappers privés =====
     private UserResponse toUserResponse(User u) {
+        String sysRole = adminRoleRepository.findByUserId(u.getId())
+                .map(ar -> ar.getRole().name())
+                .orElse(null);
         return UserResponse.builder()
                 .id(u.getId()).firstName(u.getFirstName()).lastName(u.getLastName())
                 .email(u.getEmail()).phone(u.getPhone()).role(u.getRole().name())
                 .emailVerified(u.isEmailVerified()).phoneVerified(u.isPhoneVerified())
                 .identityVerified(u.isIdentityVerified()).active(u.isActive())
                 .blocked(u.isBlocked()).blockReason(u.getBlockReason())
-                .adminApproved(u.isAdminApproved())
+                .adminApproved(u.isAdminApproved()).systemRole(sysRole)
                 .rating(u.getRating()).reviewCount(u.getReviewCount())
                 .createdAt(u.getCreatedAt()).lastLoginAt(u.getLastLoginAt()).build();
     }
@@ -599,6 +603,29 @@ public class AdminUseCase {
         user.setRole(User.UserRole.valueOf(newRole));
         userRepository.save(user);
         auditPort.log("ROLE_CHANGED", "User", userId, oldRole.name(), newRole, adminId);
+        return toUserResponse(user);
+    }
+
+    public UserResponse assignSystemRole(String userId, String systemRole, String adminId) {
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
+                .orElseThrow(() -> new UserNotFoundException("Utilisateur introuvable: " + userId));
+
+        if (systemRole == null || systemRole.isBlank() || "NONE".equalsIgnoreCase(systemRole)) {
+            adminRoleRepository.findByUserId(userId).ifPresent(adminRoleRepository::delete);
+            user.setSystemRole(null);
+            auditPort.log("SYSTEM_ROLE_REMOVED", "User", userId, null, "NONE", adminId);
+        } else {
+            SystemRole newRole = SystemRole.fromString(systemRole);
+            AdminRole adminRole = adminRoleRepository.findByUserId(userId)
+                    .orElse(AdminRole.builder().userId(userId).build());
+            String oldRoleName = adminRole.getRole() != null ? adminRole.getRole().name() : "NONE";
+            adminRole.setRole(newRole);
+            adminRole.setGrantedBy(adminId);
+            adminRoleRepository.save(adminRole);
+            user.setSystemRole(newRole);
+            auditPort.log("SYSTEM_ROLE_ASSIGNED", "User", userId, oldRoleName, newRole.name(), adminId);
+        }
+
         return toUserResponse(user);
     }
 

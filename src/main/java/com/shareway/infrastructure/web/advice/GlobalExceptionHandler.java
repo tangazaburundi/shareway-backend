@@ -119,7 +119,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NotAuthorizedException.class)
     public ResponseEntity<ApiResponse<Void>> handleUnauthorized(NotAuthorizedException e, HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(ApiResponse.error("UNAUTHORIZED", resolveMessage(e, request)));
+                .body(ApiResponse.error("UNAUTHORIZED", e.getMessage()));
     }
 
     @ExceptionHandler(AccessDeniedException.class)
@@ -137,13 +137,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ResourceAlreadyExistsException.class)
     public ResponseEntity<ApiResponse<Void>> handleConflict(ResourceAlreadyExistsException e, HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(ApiResponse.error("CONFLICT", resolveMessage(e, request)));
+                .body(ApiResponse.error("CONFLICT", e.getMessage()));
     }
 
     @ExceptionHandler(InvalidOperationException.class)
     public ResponseEntity<ApiResponse<Void>> handleInvalidOp(InvalidOperationException e, HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error("INVALID_OPERATION", resolveMessage(e, request)));
+                .body(ApiResponse.error("INVALID_OPERATION", e.getMessage()));
     }
 
     @ExceptionHandler(InsufficientSeatsException.class)

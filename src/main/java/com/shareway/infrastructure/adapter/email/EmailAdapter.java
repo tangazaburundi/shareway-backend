@@ -18,7 +18,7 @@ public class EmailAdapter implements EmailPort {
 
     @Value("${shareway.app.frontend-url}")
     private String frontendUrl;
-    @Value("${spring.mail.username}")
+    @Value("${app.mail-from:${MAIL_FROM:lemarchebdi@gmail.com}}")
     private String from;
     @Value("${shareway.app.name}")
     private String appName;

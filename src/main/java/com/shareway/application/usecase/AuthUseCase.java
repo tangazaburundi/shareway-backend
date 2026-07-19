@@ -24,6 +24,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -48,6 +51,7 @@ public class AuthUseCase {
     private final TwoFaPort twoFaPort;
     private final UserMapper userMapper;
     private final ReferralUseCase referralUseCase;
+    private final PlatformTransactionManager transactionManager;
 
     public AuthResponse register(RegisterRequest req) {
         userDomainService.validateRegistration(req.getEmail());
@@ -96,8 +100,18 @@ public class AuthUseCase {
         if (user.isBlocked())
             throw new AccountBlockedException("Account blocked: " + user.getBlockReason());
 
-        if (!user.isEmailVerified())
-            throw new NotAuthorizedException("Vérifiez votre email d'abord. Un lien de validation vous a été envoyé.");
+        if (!user.isEmailVerified()) {
+            var tt = new TransactionTemplate(transactionManager);
+            tt.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            tt.executeWithoutResult(status -> {
+                String verifyToken = userDomainService.generateEmailVerificationToken();
+                user.setEmailVerifyToken(verifyToken);
+                user.setEmailVerifyExpiry(LocalDateTime.now().plusHours(24));
+                userRepository.save(user);
+                emailPort.sendVerificationEmail(user.getEmail(), user.getFirstName(), verifyToken);
+            });
+            throw new NotAuthorizedException("Vérifiez votre email d'abord. Un nouveau lien de validation vous a été envoyé.");
+        }
 
         if (!user.isAdminApproved())
             throw new NotAuthorizedException("Votre compte est en attente de validation par un administrateur.");
@@ -152,12 +166,15 @@ public class AuthUseCase {
             throw new InvalidOperationException("Email already verified");
         }
 
-        String verifyToken = userDomainService.generateEmailVerificationToken();
-        user.setEmailVerifyToken(verifyToken);
-        user.setEmailVerifyExpiry(LocalDateTime.now().plusHours(24));
-        userRepository.save(user);
-
-        emailPort.sendVerificationEmail(user.getEmail(), user.getFirstName(), verifyToken);
+        var tt = new TransactionTemplate(transactionManager);
+        tt.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        tt.executeWithoutResult(status -> {
+            String verifyToken = userDomainService.generateEmailVerificationToken();
+            user.setEmailVerifyToken(verifyToken);
+            user.setEmailVerifyExpiry(LocalDateTime.now().plusHours(24));
+            userRepository.save(user);
+            emailPort.sendVerificationEmail(user.getEmail(), user.getFirstName(), verifyToken);
+        });
         auditPort.log("EMAIL_VERIFICATION_RESENT", "User", user.getId(), null, null, user.getId());
     }
 

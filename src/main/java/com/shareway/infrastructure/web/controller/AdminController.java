@@ -199,6 +199,15 @@ public class AdminController {
                 adminUseCase.changeUserRole(id, body.get("role"), SecurityUtils.currentUserId()), "Role updated"));
     }
 
+    @PutMapping("/users/{id}/system-role")
+    @Operation(summary = "Assigner un rôle système (ADMIN, MODERATOR, SUPPORT) ou retirer (NONE)")
+    public ResponseEntity<ApiResponse<UserResponse>> assignSystemRole(
+            @PathVariable String id, @RequestBody Map<String, String> body) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                adminUseCase.assignSystemRole(id, body.get("systemRole"), SecurityUtils.currentUserId()),
+                "System role updated"));
+    }
+
     // ===== DEMANDES DE RÔLE =====
     @GetMapping("/role-requests")
     @Operation(summary = "Liste des demandes de rôle avec filtre")
