@@ -66,8 +66,14 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/public/ads/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/public/ads/{id}/click").permitAll()
 
+                        // ── Partenaires publics ─────────────────────────────────────
+                        .requestMatchers(HttpMethod.GET, "/api/v1/partenaires/active").permitAll()
+
                         // ── Stats publiques ────────────────────────────────────────
                         .requestMatchers(HttpMethod.GET, "/public/stats").permitAll()
+
+                        // ── Partenaires publics ─────────────────────────────────────
+                        .requestMatchers(HttpMethod.GET, "/api/v1/partenaires/active").permitAll()
 
                         // ── Visitors analytics ─────────────────────────────────────
                         .requestMatchers(HttpMethod.POST, "/visits").permitAll()
@@ -103,8 +109,15 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        String frontendUrlClean = frontendUrl != null ? frontendUrl.trim() : "";
-        config.setAllowedOriginPatterns(List.of(frontendUrlClean));
+        String url = frontendUrl != null ? frontendUrl.trim() : "";
+        List<String> origins = new java.util.ArrayList<>();
+        origins.add(url);
+        if (url.contains("://www.")) {
+            origins.add(url.replace("://www.", "://"));
+        } else if (url.contains("://")) {
+            origins.add(url.replace("://", "://www."));
+        }
+        config.setAllowedOriginPatterns(origins);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);
