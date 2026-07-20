@@ -13,6 +13,15 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -21,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class VisitorUseCase {
@@ -29,11 +39,27 @@ public class VisitorUseCase {
     private final UserRepository userRepository;
 
     private static final String ADMIN_EMAIL = VisitorRepository.ADMIN_EMAIL;
+    private static final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(3))
+            .build();
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     public Visitor recordVisit(RecordVisitRequest req, String userId, String ip) {
         User user = null;
         if (userId != null) {
             user = userRepository.findById(userId).orElse(null);
+        }
+
+        String country = null;
+        String city = null;
+        if (ip != null && !ip.isBlank() && !ip.equals("127.0.0.1") && !ip.equals("0:0:0:0:0:0:0:1")) {
+            try {
+                var geo = resolveGeo(ip);
+                country = geo[0];
+                city = geo[1];
+            } catch (Exception e) {
+                log.debug("Geolocation failed for IP {}: {}", ip, e.getMessage());
+            }
         }
 
         Visitor visitor = Visitor.builder()
@@ -42,6 +68,8 @@ public class VisitorUseCase {
                 .userEmail(user != null ? user.getEmail() : null)
                 .anonymousId(req.getAnonymousId())
                 .ipAddress(ip)
+                .country(country)
+                .city(city)
                 .pageUrl(req.getPageUrl())
                 .referrer(req.getReferrer())
                 .userAgent(req.getUserAgent())
@@ -49,6 +77,25 @@ public class VisitorUseCase {
                 .build();
 
         return visitorRepository.save(visitor);
+    }
+
+    private String[] resolveGeo(String ip) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://ip-api.com/json/" + ip + "?fields=status,country,city"))
+                .timeout(Duration.ofSeconds(2))
+                .GET()
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        JsonNode json = objectMapper.readTree(response.body());
+
+        if ("success".equals(json.path("status").asText())) {
+            return new String[]{
+                    json.path("country").asText(null),
+                    json.path("city").asText(null)
+            };
+        }
+        return new String[]{null, null};
     }
 
     public void updateCookiesAccepted(String anonymousId, boolean accepted) {
