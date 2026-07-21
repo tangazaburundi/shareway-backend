@@ -67,6 +67,16 @@ public class PartenaireUseCase {
         return toResponse(p);
     }
 
+    public PartenaireResponse toggleActive(String id, String adminId) {
+        Partenaire p = partenaireRepository.findById(id)
+                .orElseThrow(() -> new PartenaireNotFoundException("Partenaire introuvable : " + id));
+        p.setActif(!p.isActif());
+        partenaireRepository.save(p);
+        auditPort.log("PARTENAIRE_TOGGLED", "Partenaire", id, null, p.isActif(), adminId);
+        log.info("Partenaire {} {} by admin {}", p.getNom(), p.isActif() ? "activated" : "deactivated", adminId);
+        return toResponse(p);
+    }
+
     public void delete(String id, String adminId) {
         Partenaire p = partenaireRepository.findById(id)
                 .orElseThrow(() -> new PartenaireNotFoundException("Partenaire introuvable : " + id));

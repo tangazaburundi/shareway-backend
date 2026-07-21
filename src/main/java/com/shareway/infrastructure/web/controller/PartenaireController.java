@@ -13,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -83,6 +84,15 @@ public class PartenaireController {
         PartenaireResponse updated = partenaireUseCase.update(id, nom, imageUrl, lienUrl, actif, sortOrder,
                 SecurityUtils.currentUserId());
         return ResponseEntity.ok(ApiResponse.ok(updated, "Partenaire mis à jour"));
+    }
+
+    @PatchMapping("/admin/{id}/toggle-active")
+    @Operation(summary = "Activer/Désactiver un partenaire")
+    @SecurityRequirement(name = "bearerAuth")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<PartenaireResponse>> toggleActive(@PathVariable String id) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                partenaireUseCase.toggleActive(id, SecurityUtils.currentUserId())));
     }
 
     @DeleteMapping("/admin/{id}")
