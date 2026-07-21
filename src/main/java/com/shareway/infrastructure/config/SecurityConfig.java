@@ -67,13 +67,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/public/ads/{id}/click").permitAll()
 
                         // ── Partenaires publics ─────────────────────────────────────
-                        .requestMatchers(HttpMethod.GET, "/api/v1/partenaires/active").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/partenaires/active").permitAll()
 
                         // ── Stats publiques ────────────────────────────────────────
                         .requestMatchers(HttpMethod.GET, "/public/stats").permitAll()
-
-                        // ── Partenaires publics ─────────────────────────────────────
-                        .requestMatchers(HttpMethod.GET, "/api/v1/partenaires/active").permitAll()
 
                         // ── Visitors analytics ─────────────────────────────────────
                         .requestMatchers(HttpMethod.POST, "/visits").permitAll()
