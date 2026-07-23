@@ -46,6 +46,7 @@ class AuthUseCaseTest {
     @Mock private TwoFaPort twoFaPort;
     @Mock private UserMapper userMapper;
     @Mock private ReferralUseCase referralUseCase;
+    @Mock private org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @Captor private ArgumentCaptor<User> userCaptor;
 
@@ -59,7 +60,7 @@ class AuthUseCaseTest {
                 userRepository, adminRoleRepository, passwordResetTokenRepository,
                 userDomainService,
                 passwordEncoder, jwtPort, emailPort, auditPort, twoFaPort,
-                userMapper, referralUseCase
+                userMapper, referralUseCase, transactionManager
         );
     }
 

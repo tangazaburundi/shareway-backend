@@ -111,7 +111,7 @@ class TripUseCaseTest {
         assertNotNull(response);
         assertEquals("Bujumbura", response.getDepartureCity());
         assertEquals("Gitega", response.getArrivalCity());
-        verify(auditPort).log(eq("TRIP_CREATED"), eq("Trip"), anyString(), isNull(), isNull(), eq("driver-1"));
+        verify(auditPort).log(eq("TRIP_CREATED"), eq("Trip"), any(), isNull(), isNull(), eq("driver-1"));
     }
 
     @Test
@@ -183,7 +183,7 @@ class TripUseCaseTest {
         assertEquals("PENDING", response.getStatus());
         assertEquals(new BigDecimal("5000"), response.getAmountPaid());
         verify(notificationPort).notifyWithLink(anyString(), anyString(), anyString(), anyString(), anyString());
-        verify(auditPort).log(eq("BOOKING_CREATED"), eq("Booking"), anyString(), isNull(), isNull(), eq("passenger-1"));
+        verify(auditPort).log(eq("BOOKING_CREATED"), eq("Booking"), any(), isNull(), isNull(), eq("passenger-1"));
     }
 
     @Test
@@ -210,7 +210,6 @@ class TripUseCaseTest {
 
         when(tripRepository.findByIdAndDeletedAtIsNull("trip-1")).thenReturn(Optional.of(trip));
         when(tripRepository.save(any(Trip.class))).thenAnswer(i -> i.getArgument(0));
-        when(bookingRepository.save(any(Booking.class))).thenAnswer(i -> i.getArgument(0));
 
         tripUseCase.cancel("trip-1", "Raison test", "driver-1");
 

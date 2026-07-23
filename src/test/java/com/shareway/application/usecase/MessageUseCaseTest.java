@@ -20,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -164,7 +165,7 @@ class MessageUseCaseTest {
 
     @Test
     void getConversation_shouldReturnPage() {
-        Pageable pageable = PageRequest.of(0, 50);
+        Pageable pageable = PageRequest.of(0, 50, Sort.by("createdAt").ascending());
         var page = new PageImpl<>(List.of(message), pageable, 1);
 
         when(userRepository.findByIdAndDeletedAtIsNull("user-2")).thenReturn(Optional.of(receiver));

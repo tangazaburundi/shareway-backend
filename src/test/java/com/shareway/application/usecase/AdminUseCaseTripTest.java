@@ -17,6 +17,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -63,7 +64,7 @@ class AdminUseCaseTripTest {
 
     @Test
     void getAllTrips_withStatusFilter() {
-        Pageable pageable = PageRequest.of(0, 20);
+        Pageable pageable = PageRequest.of(0, 20, Sort.by("departureTime").descending());
         var page = new PageImpl<>(List.of(trip), pageable, 1);
         when(tripRepository.findByStatus(Trip.TripStatus.OPEN, pageable)).thenReturn(page);
 
@@ -75,7 +76,7 @@ class AdminUseCaseTripTest {
 
     @Test
     void getAllTrips_noFilter() {
-        Pageable pageable = PageRequest.of(0, 20);
+        Pageable pageable = PageRequest.of(0, 20, Sort.by("departureTime").descending());
         var page = new PageImpl<>(List.of(trip), pageable, 1);
         when(tripRepository.findAll(pageable)).thenReturn(page);
 

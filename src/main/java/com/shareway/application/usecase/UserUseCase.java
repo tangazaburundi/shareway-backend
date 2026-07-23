@@ -340,6 +340,7 @@ public class UserUseCase {
 
         return DashboardStatsResponse.builder()
                 .totalTrips(totalTrips)
+                .completedTrips(completedCount)
                 .totalPassengers(totalPassengers)
                 .totalEarnings(totalEarnings)
                 .earningsByCurrency(earningsByCurrency)

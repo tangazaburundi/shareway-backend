@@ -22,6 +22,9 @@ public class DashboardStatsResponse {
     /** Nombre total de trajets créés (conducteur) ou réservés (passager) */
     private long totalTrips;
 
+    /** Nombre de trajets effectués (COMPLETED) */
+    private long completedTrips;
+
     /** Nombre total de passagers transportés (conducteur uniquement) */
     private long totalPassengers;
 
