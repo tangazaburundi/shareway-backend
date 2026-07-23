@@ -35,7 +35,7 @@ public class CreateTripRequest {
     @Max(8)
     private int totalSeats;
     @NotNull
-    @DecimalMin("0.01")
+    @DecimalMin(value = "0.01", message = "Le prix par place doit être supérieur ou égal à 0.01")
     private BigDecimal pricePerSeat;
     @NotBlank
     private String currency;
