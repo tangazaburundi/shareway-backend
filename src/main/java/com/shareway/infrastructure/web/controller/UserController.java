@@ -1,11 +1,13 @@
 package com.shareway.infrastructure.web.controller;
 
+import com.shareway.application.dto.request.CreateRoleRequest;
 import com.shareway.application.dto.request.SaveVehicleRequest;
 import com.shareway.application.dto.request.SwitchRoleRequest;
 import com.shareway.application.dto.request.UpdateUserProfileRequest;
 import com.shareway.application.dto.response.ApiResponse;
 import com.shareway.application.dto.response.DashboardStatsResponse;
 import com.shareway.application.dto.response.NotificationResponse;
+import com.shareway.application.dto.response.RoleRequestResponse;
 import com.shareway.application.dto.response.UserResponse;
 import com.shareway.application.dto.response.VehicleResponse;
 import com.shareway.application.usecase.UserUseCase;
@@ -160,6 +162,36 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.ok(
                 userUseCase.switchRole(req.getRole(), SecurityUtils.currentUserId()),
                 "Rôle mis à jour : " + req.getRole()));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // POST /users/me/role-requests
+    // Demander un changement de rôle (validé par un admin)
+    // ──────────────────────────────────────────────────────────────────────
+    @PostMapping("/me/role-requests")
+    @Operation(
+            summary = "Demander un changement de rôle",
+            description = "Soumet une demande de changement de rôle (DRIVER, PASSENGER ou BOTH). En attente de validation admin."
+    )
+    public ResponseEntity<ApiResponse<RoleRequestResponse>> createRoleRequest(
+            @Valid @RequestBody CreateRoleRequest req) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                userUseCase.createRoleRequest(req.getRequestedRole(), req.getReason(), SecurityUtils.currentUserId()),
+                "Demande de rôle soumise, en attente de validation"));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // GET /users/me/role-requests
+    // Historique de mes demandes de changement de rôle
+    // ──────────────────────────────────────────────────────────────────────
+    @GetMapping("/me/role-requests")
+    @Operation(
+            summary = "Mes demandes de rôle",
+            description = "Retourne l'historique des demandes de changement de rôle de l'utilisateur connecté."
+    )
+    public ResponseEntity<ApiResponse<List<RoleRequestResponse>>> getMyRoleRequests() {
+        return ResponseEntity.ok(ApiResponse.ok(
+                userUseCase.getMyRoleRequests(SecurityUtils.currentUserId())));
     }
 
     // ──────────────────────────────────────────────────────────────────────

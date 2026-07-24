@@ -4,6 +4,7 @@ import com.shareway.application.dto.request.SaveVehicleRequest;
 import com.shareway.application.dto.request.UpdateUserProfileRequest;
 import com.shareway.application.dto.response.DashboardStatsResponse;
 import com.shareway.application.dto.response.NotificationResponse;
+import com.shareway.application.dto.response.RoleRequestResponse;
 import com.shareway.application.dto.response.TravelPreferencesResponse;
 import com.shareway.application.dto.response.UserResponse;
 import com.shareway.application.dto.response.VehicleResponse;
@@ -13,6 +14,7 @@ import com.shareway.domain.exception.InvalidOperationException;
 import com.shareway.domain.exception.NotAuthorizedException;
 import com.shareway.domain.exception.UserNotFoundException;
 import com.shareway.domain.model.Booking;
+import com.shareway.domain.model.RoleRequest;
 import com.shareway.domain.model.Trip;
 import com.shareway.domain.model.User;
 import com.shareway.domain.model.UserDocument;
@@ -21,6 +23,7 @@ import com.shareway.domain.model.Vehicle;
 import com.shareway.domain.repository.BookingRepository;
 import com.shareway.domain.repository.NotificationRepository;
 import com.shareway.domain.repository.ReviewRepository;
+import com.shareway.domain.repository.RoleRequestRepository;
 import com.shareway.domain.repository.TripRepository;
 import com.shareway.domain.repository.UserDocumentRepository;
 import com.shareway.domain.repository.UserRepository;
@@ -68,6 +71,7 @@ public class UserUseCase {
     private final ReviewRepository reviewRepository;
     private final NotificationRepository notificationRepository;
     private final UserDocumentRepository documentRepository;
+    private final RoleRequestRepository roleRequestRepository;
     private final StoragePort storagePort;
     private final AuditPort auditPort;
 
@@ -223,6 +227,45 @@ public class UserUseCase {
         auditPort.log("ROLE_SWITCHED", "User", userId, null, role, userId);
 
         return toResponse(user, true);
+    }
+
+    // ─────────────────────────────────────────────
+    // POST /users/me/role-requests  →  demander un changement de rôle
+    // ─────────────────────────────────────────────
+    public RoleRequestResponse createRoleRequest(String requestedRole, String reason, String userId) {
+        User user = findActive(userId);
+        User.UserRole targetRole = User.UserRole.valueOf(requestedRole);
+
+        if (user.getRole() == targetRole) {
+            throw new InvalidOperationException("Vous avez déjà ce rôle : " + requestedRole);
+        }
+
+        if (roleRequestRepository.existsByUserIdAndStatus(userId, RoleRequest.Status.PENDING)) {
+            throw new InvalidOperationException("Vous avez déjà une demande en attente de validation");
+        }
+
+        RoleRequest request = RoleRequest.builder()
+                .userId(userId)
+                .requestedRole(targetRole)
+                .reason(reason)
+                .build();
+        roleRequestRepository.save(request);
+
+        auditPort.log("ROLE_REQUEST_CREATED", "RoleRequest", request.getId(), null, requestedRole, userId);
+        return toRoleRequestResponse(request, user.getRole().name());
+    }
+
+    // ─────────────────────────────────────────────
+    // GET /users/me/role-requests  →  historique des demandes
+    // ─────────────────────────────────────────────
+    @Transactional(readOnly = true)
+    public List<RoleRequestResponse> getMyRoleRequests(String userId) {
+        User user = findActive(userId);
+        String currentRole = user.getRole().name();
+        return roleRequestRepository.findByUserIdOrderByCreatedAtDesc(userId)
+                .stream()
+                .map(r -> toRoleRequestResponse(r, currentRole))
+                .collect(Collectors.toList());
     }
 
     // ─────────────────────────────────────────────
@@ -460,6 +503,19 @@ public class UserUseCase {
                 .preferences(prefs)
                 .createdAt(u.getCreatedAt())
                 .lastLoginAt(includePrivateFields ? u.getLastLoginAt() : null)
+                .build();
+    }
+
+    private RoleRequestResponse toRoleRequestResponse(RoleRequest r, String currentRole) {
+        return RoleRequestResponse.builder()
+                .id(r.getId())
+                .requestedRole(r.getRequestedRole().name())
+                .currentRole(currentRole)
+                .status(r.getStatus().name())
+                .reason(r.getReason())
+                .reviewComment(r.getReviewComment())
+                .createdAt(r.getCreatedAt())
+                .reviewedAt(r.getReviewedAt())
                 .build();
     }
 }

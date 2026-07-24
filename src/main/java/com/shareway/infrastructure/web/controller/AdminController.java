@@ -3,6 +3,7 @@ package com.shareway.infrastructure.web.controller;
 import com.shareway.application.dto.request.AdminBlockUserRequest;
 import com.shareway.application.dto.request.AdminReviewReportRequest;
 import com.shareway.application.dto.response.ApiResponse;
+import com.shareway.application.dto.response.AdminRoleRequestResponse;
 import com.shareway.application.dto.response.AuditLogResponse;
 import com.shareway.application.dto.response.MessageResponse;
 import com.shareway.application.dto.response.PageResponse;
@@ -211,7 +212,7 @@ public class AdminController {
     // ===== DEMANDES DE RÔLE =====
     @GetMapping("/role-requests")
     @Operation(summary = "Liste des demandes de rôle avec filtre")
-    public ResponseEntity<ApiResponse<PageResponse<RoleRequest>>> getRoleRequests(
+    public ResponseEntity<ApiResponse<PageResponse<AdminRoleRequestResponse>>> getRoleRequests(
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {

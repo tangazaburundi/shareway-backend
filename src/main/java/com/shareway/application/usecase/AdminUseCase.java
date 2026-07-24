@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shareway.application.dto.request.AdminBlockUserRequest;
 import com.shareway.application.dto.request.AdminLoginRequest;
 import com.shareway.application.dto.request.AdminReviewReportRequest;
+import com.shareway.application.dto.response.AdminRoleRequestResponse;
 import com.shareway.application.dto.response.AdminAuthResponse;
 import com.shareway.application.dto.response.AuditLogResponse;
 import com.shareway.application.dto.response.MessageResponse;
@@ -634,13 +635,39 @@ public class AdminUseCase {
     // ═══════════════════════════════════════════════════════════
 
     @Transactional(readOnly = true)
-    public PageResponse<RoleRequest> getRoleRequests(String status, int page, int size) {
+    public PageResponse<AdminRoleRequestResponse> getRoleRequests(String status, int page, int size) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         Page<RoleRequest> requests = status != null
                 ? roleRequestRepository.findByStatusOrderByCreatedAtDesc(
                     RoleRequest.Status.valueOf(status), pageable)
                 : roleRequestRepository.findAllByOrderByCreatedAtDesc(pageable);
-        return PageResponse.from(requests);
+
+        List<AdminRoleRequestResponse> enriched = requests.getContent().stream().map(rr -> {
+            User user = userRepository.findByIdAndDeletedAtIsNull(rr.getUserId()).orElse(null);
+            return AdminRoleRequestResponse.builder()
+                    .id(rr.getId())
+                    .userId(rr.getUserId())
+                    .firstName(user != null ? user.getFirstName() : "?")
+                    .lastName(user != null ? user.getLastName() : "?")
+                    .email(user != null ? user.getEmail() : "?")
+                    .currentRole(user != null ? user.getRole().name() : "?")
+                    .requestedRole(rr.getRequestedRole().name())
+                    .status(rr.getStatus().name())
+                    .reason(rr.getReason())
+                    .createdAt(rr.getCreatedAt())
+                    .reviewedAt(rr.getReviewedAt())
+                    .build();
+        }).collect(Collectors.toList());
+
+        return PageResponse.<AdminRoleRequestResponse>builder()
+                .content(enriched)
+                .totalElements(requests.getTotalElements())
+                .totalPages(requests.getTotalPages())
+                .currentPage(requests.getNumber())
+                .size(requests.getSize())
+                .first(requests.isFirst())
+                .last(requests.isLast())
+                .build();
     }
 
     @Transactional(readOnly = true)

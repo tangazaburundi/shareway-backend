@@ -18,4 +18,6 @@ public interface RoleRequestRepository extends JpaRepository<RoleRequest, String
     Page<RoleRequest> findByStatusOrderByCreatedAtDesc(RoleRequest.Status status, Pageable pageable);
 
     Page<RoleRequest> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+    boolean existsByUserIdAndStatus(String userId, RoleRequest.Status status);
 }
