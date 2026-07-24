@@ -23,6 +23,6 @@ jobs:
             git pull origin master
             cp docker-compose.prod.yml docker-compose.yml
             test -f .env || cp docker/.env.prod .env
-            docker compose build backend
+            docker compose build --no-cache backend
             docker compose up -d --no-deps backend
             docker image prune -f

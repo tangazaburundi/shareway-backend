@@ -94,13 +94,36 @@ public class EmailAdapter implements EmailPort {
     }
 
     private String wrapHtml(String content) {
+        String logoUrl = frontendUrl + "/assets/images/shareway-logo.jpg";
+        String whatsappLink = "https://wa.me/33780739384";
         return """
-                <!DOCTYPE html><html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-                <div style="background:#667eea;padding:20px;border-radius:8px 8px 0 0;">
-                  <h1 style="color:white;margin:0;">%s</h1>
+                <!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+                <body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;background:#f5f5f5;">
+                <div style="background:white;border-radius:8px;overflow:hidden;">
+                  <div style="background:#1a8b82;padding:20px;text-align:center;">
+                    <img src="%s" alt="%s" style="height:50px;max-width:200px;">
+                  </div>
+                  <div style="padding:24px;color:#374151;font-size:15px;line-height:1.6;">%s</div>
+                  <div style="border-top:1px solid #e5e7eb;padding:20px;text-align:center;background:#f9fafb;">
+                    <p style="margin:0 0 8px;color:#6b7280;font-size:13px;">
+                      <a href="%s" style="color:#25D366;text-decoration:none;font-weight:bold;">
+                        &#128242; WhatsApp : +33 7 80 73 93 84
+                      </a>
+                    </p>
+                    <p style="margin:0 0 8px;color:#6b7280;font-size:13px;">
+                      &#9993; <a href="mailto:sharewaybdi&#64;gmail.com" style="color:#1a8b82;text-decoration:none;">sharewaybdi&#64;gmail.com</a>
+                    </p>
+                    <p style="margin:12px 0 0;color:#9ca3af;font-size:11px;">
+                      <a href="%s/mentions-legales" style="color:#9ca3af;text-decoration:none;">Mentions l&#233;gales</a> &middot;
+                      <a href="%s/confidentialite" style="color:#9ca3af;text-decoration:none;">Confidentialit&#233;</a> &middot;
+                      <a href="%s/cgu" style="color:#9ca3af;text-decoration:none;">CGU</a>
+                    </p>
+                    <p style="margin:12px 0 0;color:#9ca3af;font-size:12px;">&copy; 2026 %s &mdash; Tous droits r&#233;serv&#233;s</p>
+                    <p style="margin:16px 0 0;color:#9ca3af;font-size:11px;font-style:italic;">
+                      Si vous n'attendiez pas cet email, ignorez-le.
+                    </p>
+                  </div>
                 </div>
-                <div style="background:#f7f7f7;padding:20px;border-radius:0 0 8px 8px;">%s</div>
-                <p style="color:#999;font-size:12px;text-align:center;">© 2025 %s. Tous droits réservés.</p>
-                </body></html>""".formatted(appName, content, appName);
+                </body></html>""".formatted(logoUrl, appName, content, whatsappLink, frontendUrl, frontendUrl, frontendUrl, appName);
     }
 }

@@ -22,6 +22,7 @@ uploads/
 # Env
 .env
 *.env
+docker/.env.prod
 
 # Docker volumes
 mysql-data/
