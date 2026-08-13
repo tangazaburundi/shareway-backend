@@ -72,6 +72,12 @@ server:
     include-binding-errors: always
 
 security:
+  auth:
+    max-attempts: ${MAX_LOGIN_ATTEMPTS:5}
+    lock-minutes: ${ACCOUNT_LOCK_MINUTES:180}
+  admin-auth:
+    max-attempts: ${ADMIN_MAX_LOGIN_ATTEMPTS:5}
+    lock-minutes: ${ADMIN_ACCOUNT_LOCK_MINUTES:180}
   jwt:
     secret: ${JWT_SECRET:dev-jwt-secret-key-change-in-production-minimum-256-bits}
     expiration: ${JWT_EXPIRATION:86400000}

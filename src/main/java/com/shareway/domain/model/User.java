@@ -181,6 +181,14 @@ public class User {
     @Column(name = "locked_until")
     private LocalDateTime lockedUntil;
 
+    @Column(name = "lock_count")
+    @Builder.Default
+    private int lockCount = 0;
+
+    @Column(name = "permanently_locked")
+    @Builder.Default
+    private boolean permanentlyLocked = false;
+
     @Transient
     private SystemRole systemRole;
 
@@ -193,20 +201,49 @@ public class User {
         updatedAt = LocalDateTime.now();
     }
 
+    public static final int MAX_LOCKS_BEFORE_PERMANENT = 3;
+
     public boolean isLocked() {
-        return lockedUntil != null && lockedUntil.isAfter(LocalDateTime.now());
+        return permanentlyLocked
+                || (lockedUntil != null && lockedUntil.isAfter(LocalDateTime.now()));
+    }
+
+    public boolean isPermanentlyLocked() {
+        return permanentlyLocked;
     }
 
     public void registerFailedLogin(int maxAttempts, int lockMinutes) {
+        resetExpiredLock();
         this.failedLoginAttempts++;
-        if (this.failedLoginAttempts >= maxAttempts) {
-            this.lockedUntil = LocalDateTime.now().plusMinutes(lockMinutes);
+        if (this.failedLoginAttempts >= maxAttempts && !isLocked()) {
+            this.lockCount++;
+            if (this.lockCount >= MAX_LOCKS_BEFORE_PERMANENT) {
+                this.permanentlyLocked = true;
+                this.lockedUntil = null;
+            } else {
+                this.lockedUntil = LocalDateTime.now().plusMinutes(lockMinutes);
+            }
+        }
+    }
+
+    private void resetExpiredLock() {
+        if (permanentlyLocked) return;
+        if (lockedUntil != null && !lockedUntil.isAfter(LocalDateTime.now())) {
+            lockedUntil = null;
+            failedLoginAttempts = 0;
         }
     }
 
     public void resetFailedLogins() {
         this.failedLoginAttempts = 0;
         this.lockedUntil = null;
+    }
+
+    public void unlockLoginLock() {
+        this.failedLoginAttempts = 0;
+        this.lockedUntil = null;
+        this.lockCount = 0;
+        this.permanentlyLocked = false;
     }
 
     @PreUpdate

@@ -15,10 +15,12 @@ import java.time.LocalDateTime;
 public class UserResponse {
     private String id, firstName, lastName, email, phone, avatarUrl, bio, role, preferredLang;
     private boolean phoneVisible, emailVerified, phoneVerified, identityVerified, twoFaEnabled, active, blocked;
+    private boolean locked, permanentlyLocked;
     private boolean adminApproved;
     private BigDecimal rating;
     private int reviewCount;
     private String blockReason;
+    private LocalDateTime lockedUntil;
     private VehicleResponse vehicle;
     private TravelPreferencesResponse preferences;
     private LocalDateTime createdAt, lastLoginAt;

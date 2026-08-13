@@ -21,6 +21,8 @@ import com.shareway.application.port.out.ExportPort;
 import com.shareway.application.port.out.NotificationPort;
 import com.shareway.application.port.out.TwoFaPort;
 import com.shareway.domain.exception.AccountBlockedException;
+import com.shareway.domain.exception.AccountLockedException;
+import com.shareway.domain.exception.AccountPermanentlyLockedException;
 import com.shareway.domain.exception.InvalidOperationException;
 import com.shareway.domain.exception.NotAuthorizedException;
 import com.shareway.domain.exception.ReviewNotFoundException;
@@ -125,7 +127,7 @@ public class AdminUseCase {
     private final SystemSettingRepository systemSettingRepository;
     @Value("${security.admin-auth.max-attempts:5}")
     private int maxAttempts;
-    @Value("${security.admin-auth.lock-minutes:15}")
+    @Value("${security.admin-auth.lock-minutes:180}")
     private int lockMinutes;
 
     public AdminAuthResponse login(AdminLoginRequest req, String ip, String userAgent) {
@@ -153,9 +155,11 @@ public class AdminUseCase {
         // ── 3. Compte verrouillé (anti brute-force) ──────────────────────────
         if (user.isLocked()) {
             audit(user.getId(), email, false, "ACCOUNT_LOCKED", ip, userAgent);
-            throw new AccountBlockedException(
-                    "Compte temporairement verrouillé suite à plusieurs tentatives échouées. " +
-                            "Réessayez après " + user.getLockedUntil());
+            if (user.isPermanentlyLocked())
+                throw new AccountPermanentlyLockedException(
+                        "Votre compte est verrouillé définitivement après plusieurs tentatives échouées. Contactez un administrateur pour le débloquer.");
+            throw new AccountLockedException(
+                    "Votre compte est temporairement verrouillé suite à plusieurs tentatives échouées. Réessayez après " + user.getLockedUntil());
         }
 
         // ── 4. Compte bloqué par un autre admin / désactivé ──────────────────
@@ -171,8 +175,11 @@ public class AdminUseCase {
             audit(user.getId(), email, false, "BAD_PASSWORD", ip, userAgent);
 
             if (user.isLocked()) {
-                throw new AccountBlockedException(
-                        "Compte verrouillé pour " + lockMinutes + " minutes suite à trop de tentatives échouées.");
+                if (user.isPermanentlyLocked())
+                    throw new AccountPermanentlyLockedException(
+                            "Votre compte est verrouillé définitivement après plusieurs tentatives échouées. Contactez un administrateur pour le débloquer.");
+                throw new AccountLockedException(
+                        "Votre compte est verrouillé pour " + lockMinutes + " minutes suite à trop de tentatives échouées.");
             }
             throw new NotAuthorizedException(GENERIC_ERROR);
         }
@@ -390,9 +397,20 @@ public class AdminUseCase {
         User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found: " + userId));
         user.unblock();
+        user.unlockLoginLock();
         userRepository.save(user);
         notificationPort.notify(userId, "SYSTEM", "Account restored", "Your account has been restored.");
         auditPort.log("USER_UNBLOCKED", "User", userId, null, null, adminId);
+        return toUserResponse(user);
+    }
+
+    public UserResponse unlockUserAccount(String userId, String adminId) {
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
+                .orElseThrow(() -> new UserNotFoundException("User not found: " + userId));
+        user.unlockLoginLock();
+        userRepository.save(user);
+        notificationPort.notify(userId, "SYSTEM", "Account unlocked", "Your account has been unlocked.");
+        auditPort.log("ACCOUNT_UNLOCKED", "User", userId, null, null, adminId);
         return toUserResponse(user);
     }
 
@@ -531,6 +549,8 @@ public class AdminUseCase {
                 .emailVerified(u.isEmailVerified()).phoneVerified(u.isPhoneVerified())
                 .identityVerified(u.isIdentityVerified()).active(u.isActive())
                 .blocked(u.isBlocked()).blockReason(u.getBlockReason())
+                .locked(u.isLocked()).permanentlyLocked(u.isPermanentlyLocked())
+                .lockedUntil(u.getLockedUntil())
                 .adminApproved(u.isAdminApproved()).systemRole(sysRole)
                 .rating(u.getRating()).reviewCount(u.getReviewCount())
                 .createdAt(u.getCreatedAt()).lastLoginAt(u.getLastLoginAt()).build();

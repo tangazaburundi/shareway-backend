@@ -2,6 +2,8 @@ package com.shareway.infrastructure.web.advice;
 
 import com.shareway.application.dto.response.ApiResponse;
 import com.shareway.domain.exception.AccountBlockedException;
+import com.shareway.domain.exception.AccountLockedException;
+import com.shareway.domain.exception.AccountPermanentlyLockedException;
 import com.shareway.domain.exception.AdvertisingNotFoundException;
 import com.shareway.domain.exception.BookingNotFoundException;
 import com.shareway.domain.exception.CancelBookingException;
@@ -132,6 +134,18 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBlocked(AccountBlockedException e, HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(ApiResponse.error("ACCOUNT_BLOCKED", resolveMessage(e, request)));
+    }
+
+    @ExceptionHandler(AccountLockedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleLocked(AccountLockedException e, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.LOCKED)
+                .body(ApiResponse.error("ACCOUNT_LOCKED", e.getMessage()));
+    }
+
+    @ExceptionHandler(AccountPermanentlyLockedException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePermanentlyLocked(AccountPermanentlyLockedException e, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.LOCKED)
+                .body(ApiResponse.error("ACCOUNT_LOCKED_PERMANENT", e.getMessage()));
     }
 
     @ExceptionHandler(ResourceAlreadyExistsException.class)

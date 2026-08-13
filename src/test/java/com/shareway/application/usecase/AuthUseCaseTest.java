@@ -8,6 +8,8 @@ import com.shareway.application.port.out.EmailPort;
 import com.shareway.application.port.out.JwtPort;
 import com.shareway.application.port.out.TwoFaPort;
 import com.shareway.domain.exception.AccountBlockedException;
+import com.shareway.domain.exception.AccountLockedException;
+import com.shareway.domain.exception.AccountPermanentlyLockedException;
 import com.shareway.domain.exception.NotAuthorizedException;
 import com.shareway.domain.exception.ResourceAlreadyExistsException;
 import com.shareway.domain.exception.UserNotFoundException;
@@ -26,6 +28,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -190,6 +193,99 @@ class AuthUseCaseTest {
 
         assertThrows(AccountBlockedException.class,
                 () -> authUseCase.login(req, "127.0.0.1", "test-agent"));
+    }
+
+    @Test
+    void login_withLockedAccount_shouldThrow() {
+        User user = User.builder()
+                .id("user-1")
+                .email("john@example.com")
+                .passwordHash(passwordEncoder.encode("password123"))
+                .lockedUntil(LocalDateTime.now().plusHours(1))
+                .build();
+
+        when(userRepository.findByEmailAndDeletedAtIsNull("john@example.com"))
+                .thenReturn(Optional.of(user));
+
+        LoginRequest req = new LoginRequest();
+        req.setEmail("john@example.com");
+        req.setPassword("password123");
+
+        assertThrows(AccountLockedException.class,
+                () -> authUseCase.login(req, "127.0.0.1", "test-agent"));
+    }
+
+    @Test
+    void login_withPermanentlyLockedAccount_shouldThrow() {
+        User user = User.builder()
+                .id("user-1")
+                .email("john@example.com")
+                .passwordHash(passwordEncoder.encode("password123"))
+                .permanentlyLocked(true)
+                .build();
+
+        when(userRepository.findByEmailAndDeletedAtIsNull("john@example.com"))
+                .thenReturn(Optional.of(user));
+
+        LoginRequest req = new LoginRequest();
+        req.setEmail("john@example.com");
+        req.setPassword("password123");
+
+        assertThrows(AccountPermanentlyLockedException.class,
+                () -> authUseCase.login(req, "127.0.0.1", "test-agent"));
+    }
+
+    @Test
+    void login_afterMaxFailedAttempts_shouldLockAndThrow() {
+        User user = User.builder()
+                .id("user-1")
+                .email("john@example.com")
+                .passwordHash(passwordEncoder.encode("password123"))
+                .build();
+
+        when(userRepository.findByEmailAndDeletedAtIsNull("john@example.com"))
+                .thenReturn(Optional.of(user));
+
+        LoginRequest req = new LoginRequest();
+        req.setEmail("john@example.com");
+        req.setPassword("wrong-password");
+
+        for (int i = 0; i < 4; i++) {
+            assertThrows(NotAuthorizedException.class,
+                    () -> authUseCase.login(req, "127.0.0.1", "test-agent"));
+        }
+        assertThrows(AccountLockedException.class,
+                () -> authUseCase.login(req, "127.0.0.1", "test-agent"));
+        assertTrue(user.isLocked());
+        assertEquals(5, user.getFailedLoginAttempts());
+    }
+
+    @Test
+    void login_withValidCredentials_shouldResetFailedAttempts() {
+        User user = User.builder()
+                .id("user-1")
+                .email("john@example.com")
+                .passwordHash(passwordEncoder.encode("password123"))
+                .failedLoginAttempts(3)
+                .emailVerified(true)
+                .adminApproved(true)
+                .build();
+
+        when(userRepository.findByEmailAndDeletedAtIsNull("john@example.com"))
+                .thenReturn(Optional.of(user));
+        when(jwtPort.generateToken(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn("token");
+        when(jwtPort.generateRefreshToken(anyString())).thenReturn("refresh");
+        when(userMapper.toResponse(any())).thenReturn(null);
+
+        LoginRequest req = new LoginRequest();
+        req.setEmail("john@example.com");
+        req.setPassword("password123");
+
+        authUseCase.login(req, "127.0.0.1", "test-agent");
+
+        assertEquals(0, user.getFailedLoginAttempts());
+        assertFalse(user.isLocked());
     }
 
     @Test

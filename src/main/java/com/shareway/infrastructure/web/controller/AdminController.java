@@ -78,6 +78,13 @@ public class AdminController {
                 adminUseCase.unblockUser(id, SecurityUtils.currentUserId()), "User unblocked"));
     }
 
+    @PostMapping("/users/{id}/unlock")
+    @Operation(summary = "Déverrouiller le compte d'un utilisateur verrouillé après des tentatives échouées")
+    public ResponseEntity<ApiResponse<UserResponse>> unlockUser(@PathVariable String id) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                adminUseCase.unlockUserAccount(id, SecurityUtils.currentUserId()), "User unlocked"));
+    }
+
     @PostMapping("/users/{id}/verify-identity")
     @Operation(summary = "Valider l'identité d'un utilisateur")
     public ResponseEntity<ApiResponse<UserResponse>> verifyIdentity(@PathVariable String id) {

@@ -8,6 +8,8 @@ import com.shareway.application.port.out.EmailPort;
 import com.shareway.application.port.out.JwtPort;
 import com.shareway.application.port.out.TwoFaPort;
 import com.shareway.domain.exception.AccountBlockedException;
+import com.shareway.domain.exception.AccountLockedException;
+import com.shareway.domain.exception.AccountPermanentlyLockedException;
 import com.shareway.domain.exception.InvalidOperationException;
 import com.shareway.domain.exception.NotAuthorizedException;
 import com.shareway.domain.exception.UserNotFoundException;
@@ -21,6 +23,7 @@ import com.shareway.domain.repository.UserRepository;
 import com.shareway.domain.service.UserDomainService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,6 +55,12 @@ public class AuthUseCase {
     private final UserMapper userMapper;
     private final ReferralUseCase referralUseCase;
     private final PlatformTransactionManager transactionManager;
+
+    @Value("${security.auth.max-attempts:5}")
+    private int maxAttempts = 5;
+
+    @Value("${security.auth.lock-minutes:180}")
+    private int lockMinutes = 180;
 
     public AuthResponse register(RegisterRequest req) {
         userDomainService.validateRegistration(req.getEmail());
@@ -94,8 +103,26 @@ public class AuthUseCase {
         User user = userRepository.findByEmailAndDeletedAtIsNull(req.getEmail().toLowerCase())
                 .orElseThrow(() -> new UserNotFoundException("Invalid credentials"));
 
-        if (!passwordEncoder.matches(req.getPassword(), user.getPasswordHash()))
+        if (user.isLocked()) {
+            if (user.isPermanentlyLocked())
+                throw new AccountPermanentlyLockedException(
+                        "Votre compte est verrouillé définitivement après plusieurs tentatives échouées. Contactez un administrateur pour le débloquer.");
+            throw new AccountLockedException(
+                    "Votre compte est temporairement verrouillé après plusieurs tentatives échouées. Réessayez après " + user.getLockedUntil() + ".");
+        }
+
+        if (!passwordEncoder.matches(req.getPassword(), user.getPasswordHash())) {
+            user.registerFailedLogin(maxAttempts, lockMinutes);
+            userRepository.save(user);
+            if (user.isLocked()) {
+                if (user.isPermanentlyLocked())
+                    throw new AccountPermanentlyLockedException(
+                            "Votre compte est verrouillé définitivement après plusieurs tentatives échouées. Contactez un administrateur pour le débloquer.");
+                throw new AccountLockedException(
+                        "Votre compte est verrouillé après " + maxAttempts + " tentatives échouées. Réessayez après " + user.getLockedUntil() + ".");
+            }
             throw new NotAuthorizedException("Invalid credentials");
+        }
 
         if (user.isBlocked())
             throw new AccountBlockedException("Account blocked: " + user.getBlockReason());
@@ -115,6 +142,9 @@ public class AuthUseCase {
 
         if (!user.isAdminApproved())
             throw new NotAuthorizedException("Votre compte est en attente de validation par un administrateur.");
+
+        user.resetFailedLogins();
+        userRepository.save(user);
 
         if (user.isTwoFaEnabled()) {
             if (req.getTwoFaCode() == null || req.getTwoFaCode().isBlank()) {
