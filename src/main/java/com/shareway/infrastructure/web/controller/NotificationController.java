@@ -3,18 +3,16 @@ package com.shareway.infrastructure.web.controller;
 import com.shareway.application.dto.response.ApiResponse;
 import com.shareway.application.dto.response.NotificationResponse;
 import com.shareway.application.dto.response.PageResponse;
+import com.shareway.application.port.out.PushNotificationPort;
 import com.shareway.application.usecase.NotificationUseCase;
 import com.shareway.infrastructure.security.SecurityUtils;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/notifications")
@@ -24,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class NotificationController {
 
     private final NotificationUseCase notificationUseCase;
+    private final PushNotificationPort pushNotificationPort;
 
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<NotificationResponse>>> list(
@@ -50,5 +49,16 @@ public class NotificationController {
     public ResponseEntity<ApiResponse<Void>> markRead(@PathVariable String id) {
         notificationUseCase.markAsRead(id, SecurityUtils.currentUserId());
         return ResponseEntity.ok(ApiResponse.noContent("Notification marked as read"));
+    }
+
+    // ── Push Notification Device Token ──────────────────────────────
+
+    @PostMapping("/device-token")
+    @SecurityRequirement(name = "bearerAuth")
+    public ResponseEntity<ApiResponse<Void>> registerDeviceToken(@RequestBody Map<String, String> body) {
+        String token = body.getOrDefault("token", "");
+        String platform = body.getOrDefault("platform", "WEB");
+        pushNotificationPort.registerDeviceToken(SecurityUtils.currentUserId(), token, platform);
+        return ResponseEntity.ok(ApiResponse.noContent("Device token registered"));
     }
 }

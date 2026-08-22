@@ -14,6 +14,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -46,6 +47,7 @@ import java.util.Map;
 public class MessageController {
 
     private final MessageUseCase messageUseCase;
+    private final SimpMessagingTemplate messaging;
 
     // ════════════════════════════════════════════════════════════════
     // Routes sans {id}
@@ -55,9 +57,10 @@ public class MessageController {
     @Operation(summary = "Envoyer un message à n'importe quel utilisateur")
     public ResponseEntity<ApiResponse<MessageResponse>> send(
             @Valid @RequestBody SendMessageRequest req) {
+        MessageResponse msg = messageUseCase.send(req, SecurityUtils.currentUserId());
+        messaging.convertAndSend("/topic/messages", msg);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.ok(
-                        messageUseCase.send(req, SecurityUtils.currentUserId()), "Message envoyé"));
+                .body(ApiResponse.ok(msg, "Message envoyé"));
     }
 
     @GetMapping("/conversations")

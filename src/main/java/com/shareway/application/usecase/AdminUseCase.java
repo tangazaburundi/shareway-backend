@@ -859,4 +859,13 @@ public class AdminUseCase {
         setting.setValue(value);
         systemSettingRepository.save(setting);
     }
+
+    public Map<String, String> getAllSystemSettings() {
+        var all = systemSettingRepository.findAll();
+        var map = new java.util.HashMap<String, String>();
+        for (var s : all) {
+            map.put(s.getKey(), s.getValue());
+        }
+        return map;
+    }
 }

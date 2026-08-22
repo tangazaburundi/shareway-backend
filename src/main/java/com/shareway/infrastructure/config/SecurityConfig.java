@@ -53,6 +53,13 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET,
                                 "/trips", "/trips/{id}", "/trips/share/**").permitAll()
 
+                        // ── Courses on-demand (estimation + nearby = public) ────────────
+                        .requestMatchers(HttpMethod.GET,
+                                "/rides/estimate", "/rides/nearby").permitAll()
+
+                        // ── Promo codes (validation publique) ─────────────────────────
+                        .requestMatchers(HttpMethod.GET, "/promo/validate").permitAll()
+
                         // ── Géocodage public ────────────────────────────────────────────
                         .requestMatchers(HttpMethod.GET, "/geocoding/**").permitAll()
 
@@ -86,7 +93,7 @@ public class SecurityConfig {
                                 "/api-docs/**", "/ws/**").permitAll()
 
                         // ── Admin ──────────────────────────────────────────────────────
-                        .requestMatchers("/admin/**")
+                        .requestMatchers("/admin/**", "/rides/admin/**")
                         .hasAnyRole("ADMIN", "SUPER_ADMIN", "MODERATOR")
                         // .requestMatchers("/api/v1/admin/**").permitAll()
 

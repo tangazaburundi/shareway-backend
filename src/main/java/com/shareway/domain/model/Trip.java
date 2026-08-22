@@ -232,5 +232,5 @@ public class Trip {
 
     public enum TripFrequency {ONCE, WEEKLY, BIWEEKLY, MONTHLY}
 
-    public enum Currency {FBU, USD, EUR}
+    public enum Currency {FBU, USD, EUR, FRW}
 }

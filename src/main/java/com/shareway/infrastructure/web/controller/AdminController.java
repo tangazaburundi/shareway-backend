@@ -313,6 +313,12 @@ public class AdminController {
         return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getTripDetail(id)));
     }
 
+    @GetMapping("/settings")
+    @Operation(summary = "Lister tous les paramètres système")
+    public ResponseEntity<ApiResponse<Map<String, String>>> getAllSettings() {
+        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getAllSystemSettings()));
+    }
+
     @PostMapping("/settings/{key}")
     @Operation(summary = "Modifier un paramètre système")
     public ResponseEntity<ApiResponse<Void>> updateSetting(

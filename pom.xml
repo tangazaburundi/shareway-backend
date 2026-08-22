@@ -151,6 +151,13 @@
             <version>5.9</version>
         </dependency>
 
+        <!-- OpenPDF - PDF generation for invoices -->
+        <dependency>
+            <groupId>com.github.librepdf</groupId>
+            <artifactId>openpdf</artifactId>
+            <version>1.3.30</version>
+        </dependency>
+
         <!-- Springdoc OpenAPI -->
         <dependency>
             <groupId>org.springdoc</groupId>
