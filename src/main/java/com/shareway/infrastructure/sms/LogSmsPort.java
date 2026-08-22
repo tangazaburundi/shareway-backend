@@ -25,8 +25,7 @@ public class LogSmsPort implements SmsPort {
 
         log.info("[SMS-{}] to={}\n{}", config.getProvider(), to, message);
 
-        // TODO: integrate real provider SDK (Twilio / Africa's Talking)
-        // When configured, replace this log-only implementation with:
+        // Placeholder: replace this log-only implementation with real SDK when provider is configured.
         // - TwilioRestClient for TWILIO
         // - ATSender for AFRICAS_TALKING
     }

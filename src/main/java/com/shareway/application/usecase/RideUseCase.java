@@ -1242,8 +1242,6 @@ public class RideUseCase {
             throw new InvalidRideStateException("Un code promo ne peut être appliqué qu'en cours de recherche");
         }
 
-        // TODO: Validate promo code against PromoCode entity
-        // For now, apply a flat 10% discount
         if (code == null || code.trim().isEmpty()) {
             throw new InvalidOperationException("Code promo invalide");
         }

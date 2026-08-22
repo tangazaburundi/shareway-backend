@@ -12,8 +12,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.UUID;
 
-//TODO
-
 /**
  * Stockage local (à remplacer par S3/MinIO en production).
  * Les fichiers sont servis via GET /static-files/** (FileController).
