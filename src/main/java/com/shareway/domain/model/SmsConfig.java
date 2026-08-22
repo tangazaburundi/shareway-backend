@@ -4,13 +4,11 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -21,54 +19,57 @@ import lombok.Setter;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "notifications")
+@Table(name = "sms_config")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Notification {
+public class SmsConfig {
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false)
-    private User user;
-
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private NotificationType type;
+    @Builder.Default
+    private SmsProvider provider = SmsProvider.DISABLED;
 
     @Column(nullable = false)
-    private String title;
-    @Column(nullable = false, columnDefinition = "TEXT")
-    private String body;
-    private String link;
-
-    @Column(name = "is_read")
     @Builder.Default
-    private boolean read = false;
-    @Column(name = "read_at")
-    private LocalDateTime readAt;
+    private boolean enabled = false;
 
-    @Column(columnDefinition = "JSON")
-    private String metadata;
+    @Column(name = "api_key")
+    private String apiKey;
 
-    @Column(name = "created_at", updatable = false)
+    @Column(name = "api_secret")
+    private String apiSecret;
+
+    @Column(name = "sender_number")
+    private String senderNumber;
+
+    @Column(name = "sender_name")
+    private String senderName;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
 
     @PrePersist
     public void prePersist() {
         createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
     }
 
-    public void markAsRead() {
-        this.read = true;
-        this.readAt = LocalDateTime.now();
+    @PreUpdate
+    public void preUpdate() {
+        updatedAt = LocalDateTime.now();
     }
 
-    public enum NotificationType {
-        BOOKING, CANCELLATION, MESSAGE, REVIEW, SYSTEM, PAYMENT, TRIP_UPDATE, IDENTITY_VERIFIED, RIDE_REJECTED, SOS
+    public enum SmsProvider {
+        TWILIO, AFRICAS_TALKING, DISABLED
     }
 }

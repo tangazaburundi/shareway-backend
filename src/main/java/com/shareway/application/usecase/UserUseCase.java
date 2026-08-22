@@ -28,6 +28,9 @@ import com.shareway.domain.repository.TripRepository;
 import com.shareway.domain.repository.UserDocumentRepository;
 import com.shareway.domain.repository.UserRepository;
 import com.shareway.domain.repository.VehicleRepository;
+import com.shareway.domain.repository.EmergencyContactRepository;
+import com.shareway.domain.model.EmergencyContact;
+import com.shareway.application.dto.response.EmergencyContactResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
@@ -72,6 +75,7 @@ public class UserUseCase {
     private final NotificationRepository notificationRepository;
     private final UserDocumentRepository documentRepository;
     private final RoleRequestRepository roleRequestRepository;
+    private final EmergencyContactRepository emergencyContactRepository;
     private final StoragePort storagePort;
     private final AuditPort auditPort;
 
@@ -516,6 +520,82 @@ public class UserUseCase {
                 .reviewComment(r.getReviewComment())
                 .createdAt(r.getCreatedAt())
                 .reviewedAt(r.getReviewedAt())
+                .build();
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // CONTACTS D'URGENCE
+    // ════════════════════════════════════════════════════════════════
+
+    @Transactional(readOnly = true)
+    public List<EmergencyContactResponse> getEmergencyContacts(String userId) {
+        return emergencyContactRepository.findByUserIdAndActiveTrueOrderByCreatedAtDesc(userId).stream()
+                .map(this::toEmergencyContactResponse)
+                .toList();
+    }
+
+    public EmergencyContactResponse addEmergencyContact(String name, String phone, String relationship, String userId) {
+        User user = findActive(userId);
+
+        long count = emergencyContactRepository.countByUserIdAndActiveTrue(userId);
+        if (count >= 5) {
+            throw new InvalidOperationException("Maximum 5 contacts d'urgence autorises");
+        }
+
+        EmergencyContact contact = EmergencyContact.builder()
+                .user(user)
+                .name(name)
+                .phone(phone)
+                .relationship(relationship)
+                .active(true)
+                .build();
+        emergencyContactRepository.save(contact);
+
+        auditPort.log("EMERGENCY_CONTACT_ADDED", "EmergencyContact", contact.getId(),
+                null, name + " — " + phone, userId);
+
+        return toEmergencyContactResponse(contact);
+    }
+
+    public EmergencyContactResponse updateEmergencyContact(String contactId, String name, String phone, String relationship, String userId) {
+        EmergencyContact contact = emergencyContactRepository.findById(contactId)
+                .orElseThrow(() -> new UserNotFoundException("Contact d'urgence introuvable"));
+
+        if (!contact.getUser().getId().equals(userId)) {
+            throw new NotAuthorizedException("Ce contact n'appartient pas a votre profil");
+        }
+
+        contact.setName(name);
+        contact.setPhone(phone);
+        contact.setRelationship(relationship);
+        emergencyContactRepository.save(contact);
+
+        return toEmergencyContactResponse(contact);
+    }
+
+    public void deleteEmergencyContact(String contactId, String userId) {
+        EmergencyContact contact = emergencyContactRepository.findById(contactId)
+                .orElseThrow(() -> new UserNotFoundException("Contact d'urgence introuvable"));
+
+        if (!contact.getUser().getId().equals(userId)) {
+            throw new NotAuthorizedException("Ce contact n'appartient pas a votre profil");
+        }
+
+        contact.setActive(false);
+        emergencyContactRepository.save(contact);
+
+        auditPort.log("EMERGENCY_CONTACT_DELETED", "EmergencyContact", contactId,
+                null, contact.getName(), userId);
+    }
+
+    private EmergencyContactResponse toEmergencyContactResponse(EmergencyContact c) {
+        return EmergencyContactResponse.builder()
+                .id(c.getId())
+                .name(c.getName())
+                .phone(c.getPhone())
+                .relationship(c.getRelationship())
+                .active(c.isActive())
+                .createdAt(c.getCreatedAt() != null ? c.getCreatedAt().toString() : null)
                 .build();
     }
 }

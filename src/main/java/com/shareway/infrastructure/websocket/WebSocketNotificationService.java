@@ -63,4 +63,28 @@ public class WebSocketNotificationService implements NotificationPort {
         Map<String, Object> payload = Map.of("tripId", tripId, "lat", lat, "lng", lng);
         messaging.convertAndSend("/topic/trip/" + tripId + "/location", payload);
     }
+
+    /**
+     * Send notification to a specific user (for PushNotificationPort)
+     */
+    public void sendNotification(String userId, String title, String body, Map<String, Object> data) {
+        Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("type", "PUSH");
+        payload.put("title", title);
+        payload.put("body", body);
+        if (data != null) payload.putAll(data);
+        messaging.convertAndSendToUser(userId, "/queue/notifications", payload);
+    }
+
+    /**
+     * Broadcast notification to all users
+     */
+    public void sendGlobalNotification(String title, String body, Map<String, Object> data) {
+        Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("type", "GLOBAL_PUSH");
+        payload.put("title", title);
+        payload.put("body", body);
+        if (data != null) payload.putAll(data);
+        messaging.convertAndSend("/topic/global", payload);
+    }
 }

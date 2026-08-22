@@ -79,13 +79,42 @@ public class NominatimGeocodingAdapter implements GeocodingPort {
 
         if (raw == null) return null;
 
+        Map<String, Object> address = (Map<String, Object>) raw.get("address");
+
+        if (address != null) {
+            String houseNumber = (String) address.getOrDefault("house_number", "");
+            String road = (String) address.getOrDefault("road", "");
+            String city = (String) address.getOrDefault("city",
+                    address.getOrDefault("town",
+                            address.getOrDefault("village", "")));
+            String postcode = (String) address.getOrDefault("postcode", "");
+
+            StringBuilder sb = new StringBuilder();
+            if (!road.isEmpty()) {
+                if (!houseNumber.isEmpty()) {
+                    sb.append(houseNumber).append(" ");
+                }
+                sb.append(road);
+            }
+            if (!city.isEmpty()) {
+                if (!sb.isEmpty()) sb.append(", ");
+                sb.append(city);
+            }
+            if (!postcode.isEmpty()) {
+                sb.append(" ").append(postcode);
+            }
+
+            if (sb.length() > 0) {
+                return sb.toString();
+            }
+        }
+
         String displayName = (String) raw.get("display_name");
         return displayName;
     }
 
     @SuppressWarnings("unchecked")
     private GeocodingResult toResult(Map<String, Object> item) {
-        String displayName = (String) item.get("display_name");
         double lat = Double.parseDouble((String) item.get("lat"));
         double lng = Double.parseDouble((String) item.get("lon"));
 
@@ -94,7 +123,37 @@ public class NominatimGeocodingAdapter implements GeocodingPort {
                 address.getOrDefault("town", address.getOrDefault("village", ""))) : "";
         String country = address != null ? (String) address.getOrDefault("country", "") : "";
 
-        return new GeocodingResult(displayName, lat, lng, city, country);
+        String shortName = buildShortAddress(address);
+
+        return new GeocodingResult(shortName, lat, lng, city, country);
+    }
+
+    @SuppressWarnings("unchecked")
+    private String buildShortAddress(Map<String, Object> address) {
+        if (address == null) return "";
+
+        String houseNumber = (String) address.getOrDefault("house_number", "");
+        String road = (String) address.getOrDefault("road", "");
+        String city = (String) address.getOrDefault("city",
+                address.getOrDefault("town",
+                        address.getOrDefault("village", "")));
+        String postcode = (String) address.getOrDefault("postcode", "");
+
+        StringBuilder sb = new StringBuilder();
+        if (!road.isEmpty()) {
+            if (!houseNumber.isEmpty()) {
+                sb.append(houseNumber).append(" ");
+            }
+            sb.append(road);
+        }
+        if (!city.isEmpty()) {
+            if (!sb.isEmpty()) sb.append(", ");
+            sb.append(city);
+        }
+        if (!postcode.isEmpty()) {
+            sb.append(" ").append(postcode);
+        }
+        return sb.toString();
     }
 
     private void rateLimit() {

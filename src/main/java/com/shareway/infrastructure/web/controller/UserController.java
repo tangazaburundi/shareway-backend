@@ -6,6 +6,7 @@ import com.shareway.application.dto.request.SwitchRoleRequest;
 import com.shareway.application.dto.request.UpdateUserProfileRequest;
 import com.shareway.application.dto.response.ApiResponse;
 import com.shareway.application.dto.response.DashboardStatsResponse;
+import com.shareway.application.dto.response.EmergencyContactResponse;
 import com.shareway.application.dto.response.NotificationResponse;
 import com.shareway.application.dto.response.RoleRequestResponse;
 import com.shareway.application.dto.response.UserResponse;
@@ -19,6 +20,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -238,5 +240,53 @@ public class UserController {
     public ResponseEntity<ApiResponse<DashboardStatsResponse>> getDashboardStats() {
         return ResponseEntity.ok(ApiResponse.ok(
                 userUseCase.getDashboardStats(SecurityUtils.currentUserId())));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // CONTACTS D'URGENCE
+    // ──────────────────────────────────────────────────────────────────────
+
+    @GetMapping("/me/emergency-contacts")
+    @Operation(summary = "Mes contacts d'urgence")
+    public ResponseEntity<ApiResponse<List<EmergencyContactResponse>>> getEmergencyContacts() {
+        return ResponseEntity.ok(ApiResponse.ok(
+                userUseCase.getEmergencyContacts(SecurityUtils.currentUserId())));
+    }
+
+    @PostMapping("/me/emergency-contacts")
+    @Operation(summary = "Ajouter un contact d'urgence")
+    public ResponseEntity<ApiResponse<EmergencyContactResponse>> addEmergencyContact(
+            @RequestBody Map<String, String> body) {
+        String name = body.getOrDefault("name", "").trim();
+        String phone = body.getOrDefault("phone", "").trim();
+        String relationship = body.getOrDefault("relationship", "").trim();
+        if (name.isEmpty() || phone.isEmpty()) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("VALIDATION", "Nom et telephone requis"));
+        }
+        return ResponseEntity.ok(ApiResponse.ok(
+                userUseCase.addEmergencyContact(name, phone, relationship, SecurityUtils.currentUserId()),
+                "Contact d'urgence ajoute"));
+    }
+
+    @PutMapping("/me/emergency-contacts/{contactId}")
+    @Operation(summary = "Modifier un contact d'urgence")
+    public ResponseEntity<ApiResponse<EmergencyContactResponse>> updateEmergencyContact(
+            @PathVariable String contactId,
+            @RequestBody Map<String, String> body) {
+        String name = body.getOrDefault("name", "").trim();
+        String phone = body.getOrDefault("phone", "").trim();
+        String relationship = body.getOrDefault("relationship", "").trim();
+        if (name.isEmpty() || phone.isEmpty()) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("VALIDATION", "Nom et telephone requis"));
+        }
+        return ResponseEntity.ok(ApiResponse.ok(
+                userUseCase.updateEmergencyContact(contactId, name, phone, relationship, SecurityUtils.currentUserId())));
+    }
+
+    @DeleteMapping("/me/emergency-contacts/{contactId}")
+    @Operation(summary = "Supprimer un contact d'urgence")
+    public ResponseEntity<ApiResponse<Void>> deleteEmergencyContact(@PathVariable String contactId) {
+        userUseCase.deleteEmergencyContact(contactId, SecurityUtils.currentUserId());
+        return ResponseEntity.ok(ApiResponse.noContent("Contact d'urgence supprime"));
     }
 }
