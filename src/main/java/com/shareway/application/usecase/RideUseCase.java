@@ -234,12 +234,34 @@ public class RideUseCase {
         if (!ride.canBeCancelledByPassenger())
             throw new InvalidRideStateException("Impossible d'annuler cette course (statut: " + ride.getStatus() + ")");
 
+        RideRequest.RideStatus previousStatus = ride.getStatus();
         ride.cancelByPassenger(reason);
         rideRequestRepository.save(ride);
+
+        // Notifier TOUS les chauffeurs proches qui ont reçu la demande via WS topic
+        if (previousStatus == RideRequest.RideStatus.DRIVER_FOUND || previousStatus == RideRequest.RideStatus.SEARCHING) {
+            messaging.convertAndSend(
+                    "/topic/ride/" + rideId + "/status",
+                    Map.of(
+                            "rideId", rideId,
+                            "status", "CANCELLED",
+                            "message", "La course a été annulée par le passager"
+                    ));
+        }
 
         // Libérer le chauffeur si assigné
         if (ride.getDriver() != null) {
             rideRequestDomainService.releaseDriver(ride.getDriver().getId());
+
+            messaging.convertAndSendToUser(
+                    ride.getDriver().getId(),
+                    "/queue/ride-update",
+                    Map.of(
+                            "rideId", rideId,
+                            "status", "CANCELLED",
+                            "message", "Le passager a annulé la course"
+                    ));
+
             notificationPort.notify(
                     ride.getDriver().getId(), "CANCELLATION",
                     "Course annulée",
@@ -517,6 +539,101 @@ public class RideUseCase {
         }
 
         auditPort.log("RIDE_REJECTED", "RideRequest", rideId, null, "Reason: " + rejectionReason, driverId);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // CHAUFFEUR — Timeout (pas de réponse à temps)
+    // ════════════════════════════════════════════════════════════════
+
+    public void timeoutRide(String rideId, String driverId) {
+        RideRequest ride = rideRequestRepository.findById(rideId)
+                .orElseThrow(() -> new RideNotFoundException("Course introuvable"));
+
+        if (!driverId.equals(ride.getDriver() != null ? ride.getDriver().getId() : null))
+            throw new NotAuthorizedException("Vous n'êtes pas le chauffeur assigné");
+
+        ride.reject();
+        rideRequestDomainService.releaseDriver(driverId);
+        rideRequestRepository.save(ride);
+
+        messaging.convertAndSendToUser(
+                ride.getPassenger().getId(),
+                "/queue/ride-update",
+                Map.of(
+                        "rideId", rideId,
+                        "status", "SEARCHING",
+                        "message", "Le chauffeur n'a pas pu répondre à temps. Recherche du prochain chauffeur..."
+                ));
+
+        notificationPort.notify(
+                ride.getPassenger().getId(),
+                "RIDE_TIMEOUT",
+                "Chauffeur indisponible",
+                "Le chauffeur n'a pas pu répondre à temps. Recherche d'un autre chauffeur..."
+        );
+
+        List<DriverAvailability> nearby = driverMatchingService.findNearbyDrivers(
+                ride.getPickupLat().doubleValue(), ride.getPickupLng().doubleValue(), getRebroadcastRadiusKm());
+
+        List<DriverAvailability> candidates = nearby.stream()
+                .filter(d -> !d.getUser().getId().equals(driverId) && d.isAvailable())
+                .toList();
+
+        if (candidates.isEmpty()) {
+            ride.cancelByPassenger("Aucun autre chauffeur disponible après timeout");
+            rideRequestRepository.save(ride);
+
+            messaging.convertAndSendToUser(
+                    ride.getPassenger().getId(),
+                    "/queue/ride-update",
+                    Map.of(
+                            "rideId", rideId,
+                            "status", "EXPIRED",
+                            "message", "Aucun autre chauffeur n'est disponible. Votre course a été annulée."
+                    ));
+
+            notificationPort.notify(
+                    ride.getPassenger().getId(),
+                    "CANCELLATION",
+                    "Course annulée",
+                    "Aucun chauffeur n'a répondu à temps.");
+
+            log.info("Ride {} cancelled — no more drivers within 2km after timeout", rideId);
+        } else {
+            DriverAvailability nearest = candidates.get(0);
+            ride.setDriver(nearest.getUser());
+            ride.setStatus(RideRequest.RideStatus.DRIVER_FOUND);
+            ride.setDriverNotifiedAt(LocalDateTime.now());
+            rideRequestRepository.save(ride);
+
+            for (DriverAvailability candidate : candidates) {
+                messaging.convertAndSendToUser(
+                        candidate.getUser().getId(),
+                        "/queue/ride-request",
+                        Map.of(
+                                "rideId", ride.getId(),
+                                "passengerName", ride.getPassenger().getFullName(),
+                                "pickupAddress", ride.getPickupAddress() != null ? ride.getPickupAddress() : "Position actuelle",
+                                "destinationAddress", ride.getDestinationAddress() != null ? ride.getDestinationAddress() : "Destination",
+                                "estimatedPrice", ride.getEstimatedPrice(),
+                                "distance", ride.getEstimatedDistanceKm(),
+                                "duration", ride.getEstimatedDurationMin(),
+                                "currency", ride.getCurrency().name(),
+                                "passengerCount", ride.getPassengerCount()
+                        ));
+
+                notificationPort.notifyWithLink(
+                        candidate.getUser().getId(), "BOOKING",
+                        "Nouvelle demande de course",
+                        "Un passager cherche un chauffeur à proximité",
+                        "/driver/ride/active"
+                );
+            }
+
+            log.info("Ride {} sent to {} drivers within 2km after timeout from {}", rideId, candidates.size(), driverId);
+        }
+
+        auditPort.log("RIDE_TIMEOUT", "RideRequest", rideId, null, "Driver did not respond in time", driverId);
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -1385,6 +1502,42 @@ public class RideUseCase {
                 .orElse(2);
     }
 
+    public Map<String, Object> getSearchTimeoutConfig() {
+        int timeoutMinutes = getSearchTimeoutMinutes();
+        int radiusKm = getRebroadcastRadiusKm();
+        double notificationVolume = getNotificationVolume();
+        var map = new java.util.LinkedHashMap<String, Object>();
+        map.put("timeoutMinutes", timeoutMinutes);
+        map.put("timeoutSeconds", timeoutMinutes * 60);
+        map.put("rebroadcastRadiusKm", radiusKm);
+        map.put("notificationVolume", notificationVolume);
+        map.put("defaultRideRequestSound", getSettingString("ride.default_ride_request_sound", "classic"));
+        map.put("defaultRideAcceptedSound", getSettingString("ride.default_ride_accepted_sound", "success"));
+        map.put("defaultRideCancelledSound", getSettingString("ride.default_ride_cancelled_sound", "alert"));
+        map.put("defaultRideCompletedSound", getSettingString("ride.default_ride_completed_sound", "tada"));
+        map.put("defaultMessageSound", getSettingString("ride.default_message_sound", "ping"));
+        map.put("defaultSosSound", getSettingString("ride.default_sos_sound", "siren"));
+        map.put("userSoundConfigEnabled", getSettingString("ride.user_sound_config_enabled", "true"));
+        return map;
+    }
+
+    private double getNotificationVolume() {
+        return systemSettingRepository.findByKey("ride.notification_volume")
+                .map(s -> {
+                    try {
+                        double v = Double.parseDouble(s.getValue());
+                        return Math.max(0.0, Math.min(1.0, v));
+                    } catch (NumberFormatException e) { return 0.3; }
+                })
+                .orElse(0.3);
+    }
+
+    private String getSettingString(String key, String defaultVal) {
+        return systemSettingRepository.findByKey(key)
+                .map(s -> s.getValue() != null ? s.getValue() : defaultVal)
+                .orElse(defaultVal);
+    }
+
     @Transactional
     public int autoCancelExpiredSearchingRides() {
         int timeout = getSearchTimeoutMinutes();
@@ -1427,37 +1580,105 @@ public class RideUseCase {
         LocalDateTime cutoff = LocalDateTime.now().minusMinutes(timeout);
         List<RideRequest> expired = rideRequestRepository.findExpiredDriverFound(cutoff);
 
-        for (RideRequest ride : expired) {
-            String reason = "Temps d'attente dépassé — le chauffeur n'a pas répondu en " + timeout + " minute(s)";
+        int rebroadcastCount = 0;
+        int cancelledCount = 0;
 
-            ride.cancelByPassenger(reason);
-            rideRequestRepository.save(ride);
+        for (RideRequest ride : expired) {
+            long totalMinutesSinceSearch = java.time.Duration.between(ride.getSearchStartedAt(), LocalDateTime.now()).toMinutes();
+            int maxTotalMinutes = timeout * 3;
 
             if (ride.getDriver() != null) {
                 rideRequestDomainService.releaseDriver(ride.getDriver().getId());
             }
 
-            messaging.convertAndSendToUser(
-                    ride.getPassenger().getId(),
-                    "/queue/ride-update",
-                    Map.of(
-                            "rideId", ride.getId(),
-                            "status", "EXPIRED",
-                            "message", "Aucun chauffeur n'a accepté votre course. La demande a été annulée."));
+            List<DriverAvailability> nearby = driverMatchingService.findNearbyDrivers(
+                    ride.getPickupLat().doubleValue(), ride.getPickupLng().doubleValue(), getRebroadcastRadiusKm());
 
-            notificationPort.notify(
-                    ride.getPassenger().getId(),
-                    "CANCELLATION",
-                    "Course expirée",
-                    "Aucun chauffeur n'a accepté votre course dans les temps.");
+            List<DriverAvailability> candidates = nearby.stream()
+                    .filter(d -> d.isAvailable())
+                    .toList();
 
-            auditPort.log("RIDE_AUTO_CANCELLED", "RideRequest", ride.getId(),
-                    null, reason, ride.getPassenger().getId());
+            if (!candidates.isEmpty() && totalMinutesSinceSearch < maxTotalMinutes) {
+                DriverAvailability nearest = candidates.get(0);
+                ride.setDriver(nearest.getUser());
+                ride.setStatus(RideRequest.RideStatus.DRIVER_FOUND);
+                ride.setDriverNotifiedAt(LocalDateTime.now());
+                rideRequestRepository.save(ride);
+
+                for (DriverAvailability candidate : candidates) {
+                    messaging.convertAndSendToUser(
+                            candidate.getUser().getId(),
+                            "/queue/ride-request",
+                            Map.of(
+                                    "rideId", ride.getId(),
+                                    "passengerName", ride.getPassenger().getFullName(),
+                                    "pickupAddress", ride.getPickupAddress() != null ? ride.getPickupAddress() : "Position actuelle",
+                                    "destinationAddress", ride.getDestinationAddress() != null ? ride.getDestinationAddress() : "Destination",
+                                    "estimatedPrice", ride.getEstimatedPrice(),
+                                    "distance", ride.getEstimatedDistanceKm(),
+                                    "duration", ride.getEstimatedDurationMin(),
+                                    "currency", ride.getCurrency().name(),
+                                    "passengerCount", ride.getPassengerCount()
+                            ));
+
+                    notificationPort.notifyWithLink(
+                            candidate.getUser().getId(), "BOOKING",
+                            "Nouvelle demande de course",
+                            "Un passager cherche un chauffeur à proximité",
+                            "/driver/ride/active"
+                    );
+                }
+
+                messaging.convertAndSendToUser(
+                        ride.getPassenger().getId(),
+                        "/queue/ride-update",
+                        Map.of(
+                                "rideId", ride.getId(),
+                                "status", "DRIVER_FOUND",
+                                "message", "Recherche d'un autre chauffeur..."));
+
+                rebroadcastCount++;
+                log.info("Ride {} rebroadcast to {} drivers after timeout (attempt {}/3)",
+                        ride.getId(), candidates.size(), totalMinutesSinceSearch / timeout + 1);
+            } else {
+                String reason = "Temps d'attente dépassé — aucun chauffeur n'a répondu";
+
+                ride.cancelByPassenger(reason);
+                rideRequestRepository.save(ride);
+
+                messaging.convertAndSend(
+                        "/topic/ride/" + ride.getId() + "/status",
+                        Map.of(
+                                "rideId", ride.getId(),
+                                "status", "EXPIRED",
+                                "message", "Aucun chauffeur n'a accepté votre course. La demande a été annulée."
+                        ));
+
+                messaging.convertAndSendToUser(
+                        ride.getPassenger().getId(),
+                        "/queue/ride-update",
+                        Map.of(
+                                "rideId", ride.getId(),
+                                "status", "EXPIRED",
+                                "message", "Aucun chauffeur n'a accepté votre course. La demande a été annulée."));
+
+                notificationPort.notify(
+                        ride.getPassenger().getId(),
+                        "CANCELLATION",
+                        "Course expirée",
+                        "Aucun chauffeur n'a accepté votre course dans les temps.");
+
+                auditPort.log("RIDE_AUTO_CANCELLED", "RideRequest", ride.getId(),
+                        null, reason, ride.getPassenger().getId());
+
+                cancelledCount++;
+            }
         }
 
-        if (!expired.isEmpty()) {
-            log.info("Auto-cancelled {} expired DRIVER_FOUND rides (timeout={}min)", expired.size(), timeout);
+        if (rebroadcastCount > 0 || cancelledCount > 0) {
+            log.info("Expired DRIVER_FOUND rides: {} rebroadcast, {} cancelled (timeout={}min)",
+                    rebroadcastCount, cancelledCount, timeout);
         }
-        return expired.size();
+        return rebroadcastCount + cancelledCount;
     }
 }

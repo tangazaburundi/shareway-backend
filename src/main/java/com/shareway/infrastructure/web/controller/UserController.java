@@ -3,12 +3,14 @@ package com.shareway.infrastructure.web.controller;
 import com.shareway.application.dto.request.CreateRoleRequest;
 import com.shareway.application.dto.request.SaveVehicleRequest;
 import com.shareway.application.dto.request.SwitchRoleRequest;
+import com.shareway.application.dto.request.UpdateSoundPreferenceRequest;
 import com.shareway.application.dto.request.UpdateUserProfileRequest;
 import com.shareway.application.dto.response.ApiResponse;
 import com.shareway.application.dto.response.DashboardStatsResponse;
 import com.shareway.application.dto.response.EmergencyContactResponse;
 import com.shareway.application.dto.response.NotificationResponse;
 import com.shareway.application.dto.response.RoleRequestResponse;
+import com.shareway.application.dto.response.SoundPreferenceResponse;
 import com.shareway.application.dto.response.UserResponse;
 import com.shareway.application.dto.response.VehicleResponse;
 import com.shareway.application.usecase.UserUseCase;
@@ -288,5 +290,27 @@ public class UserController {
     public ResponseEntity<ApiResponse<Void>> deleteEmergencyContact(@PathVariable String contactId) {
         userUseCase.deleteEmergencyContact(contactId, SecurityUtils.currentUserId());
         return ResponseEntity.ok(ApiResponse.noContent("Contact d'urgence supprime"));
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // SOUND PREFERENCES
+    // ════════════════════════════════════════════════════════════════
+
+    @GetMapping("/me/sound-preferences")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Récupérer mes préférences sonores")
+    public ResponseEntity<ApiResponse<SoundPreferenceResponse>> getSoundPreferences() {
+        return ResponseEntity.ok(ApiResponse.ok(
+                userUseCase.getSoundPreferences(SecurityUtils.currentUserId())));
+    }
+
+    @PutMapping("/me/sound-preferences")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Modifier mes préférences sonores")
+    public ResponseEntity<ApiResponse<SoundPreferenceResponse>> updateSoundPreferences(
+            @Valid @RequestBody UpdateSoundPreferenceRequest req) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                userUseCase.updateSoundPreferences(SecurityUtils.currentUserId(), req),
+                "Préférences sonores sauvegardées"));
     }
 }
