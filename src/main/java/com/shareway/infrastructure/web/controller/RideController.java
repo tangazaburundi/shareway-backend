@@ -421,6 +421,34 @@ public class RideController {
                 rideUseCase.getDriverEarningsWeekly(SecurityUtils.currentUserId())));
     }
 
+    @GetMapping("/driver/earnings/detailed")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Revenus détaillés du chauffeur (mensuel, carburant, km)")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getDriverEarningsDetailed() {
+        return ResponseEntity.ok(ApiResponse.ok(
+                rideUseCase.getDriverEarningsDetailed(SecurityUtils.currentUserId())));
+    }
+
+    @GetMapping("/driver/earnings/daily")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Revenus journaliers du chauffeur pour un mois donné")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getDriverEarningsDaily(
+            @RequestParam int year, @RequestParam int month) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                rideUseCase.getDriverEarningsDaily(SecurityUtils.currentUserId(), year, month)));
+    }
+
+    @PostMapping("/driver/fuel-entries")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Ajouter une entrée de carburant")
+    public ResponseEntity<ApiResponse<com.shareway.domain.model.FuelEntry>> addFuelEntry(
+            @RequestBody Map<String, Object> body) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok(
+                        rideUseCase.addFuelEntry(SecurityUtils.currentUserId(), body),
+                        "Entrée de carburant enregistrée"));
+    }
+
     // ════════════════════════════════════════════════════════════════
     // PROMO — Codes promo
     // ════════════════════════════════════════════════════════════════
