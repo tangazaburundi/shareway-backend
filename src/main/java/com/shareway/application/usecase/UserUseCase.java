@@ -1,10 +1,12 @@
 package com.shareway.application.usecase;
 
 import com.shareway.application.dto.request.SaveVehicleRequest;
+import com.shareway.application.dto.request.UpdateSoundPreferenceRequest;
 import com.shareway.application.dto.request.UpdateUserProfileRequest;
 import com.shareway.application.dto.response.DashboardStatsResponse;
 import com.shareway.application.dto.response.NotificationResponse;
 import com.shareway.application.dto.response.RoleRequestResponse;
+import com.shareway.application.dto.response.SoundPreferenceResponse;
 import com.shareway.application.dto.response.TravelPreferencesResponse;
 import com.shareway.application.dto.response.UserResponse;
 import com.shareway.application.dto.response.VehicleResponse;
@@ -18,6 +20,7 @@ import com.shareway.domain.model.RoleRequest;
 import com.shareway.domain.model.Trip;
 import com.shareway.domain.model.User;
 import com.shareway.domain.model.UserDocument;
+import com.shareway.domain.model.UserSoundPreference;
 import com.shareway.domain.model.UserTravelPreferences;
 import com.shareway.domain.model.Vehicle;
 import com.shareway.domain.repository.BookingRepository;
@@ -27,6 +30,7 @@ import com.shareway.domain.repository.RoleRequestRepository;
 import com.shareway.domain.repository.TripRepository;
 import com.shareway.domain.repository.UserDocumentRepository;
 import com.shareway.domain.repository.UserRepository;
+import com.shareway.domain.repository.UserSoundPreferenceRepository;
 import com.shareway.domain.repository.VehicleRepository;
 import com.shareway.domain.repository.EmergencyContactRepository;
 import com.shareway.domain.model.EmergencyContact;
@@ -76,6 +80,7 @@ public class UserUseCase {
     private final UserDocumentRepository documentRepository;
     private final RoleRequestRepository roleRequestRepository;
     private final EmergencyContactRepository emergencyContactRepository;
+    private final UserSoundPreferenceRepository userSoundPreferenceRepository;
     private final StoragePort storagePort;
     private final AuditPort auditPort;
 
@@ -596,6 +601,60 @@ public class UserUseCase {
                 .relationship(c.getRelationship())
                 .active(c.isActive())
                 .createdAt(c.getCreatedAt() != null ? c.getCreatedAt().toString() : null)
+                .build();
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // SOUND PREFERENCES
+    // ════════════════════════════════════════════════════════════════
+
+    @Transactional(readOnly = true)
+    public SoundPreferenceResponse getSoundPreferences(String userId) {
+        UserSoundPreference pref = userSoundPreferenceRepository.findByUserId(userId)
+                .orElse(null);
+
+        if (pref == null) {
+            return null;
+        }
+
+        return SoundPreferenceResponse.builder()
+                .rideRequestSound(pref.getRideRequestSound())
+                .rideAcceptedSound(pref.getRideAcceptedSound())
+                .rideCancelledSound(pref.getRideCancelledSound())
+                .rideCompletedSound(pref.getRideCompletedSound())
+                .messageSound(pref.getMessageSound())
+                .sosSound(pref.getSosSound())
+                .notificationVolume(pref.getNotificationVolume())
+                .build();
+    }
+
+    public SoundPreferenceResponse updateSoundPreferences(String userId, UpdateSoundPreferenceRequest req) {
+        User user = findActive(userId);
+
+        UserSoundPreference pref = userSoundPreferenceRepository.findByUserId(userId)
+                .orElseGet(() -> UserSoundPreference.builder().user(user).build());
+
+        pref.setRideRequestSound(req.getRideRequestSound());
+        pref.setRideAcceptedSound(req.getRideAcceptedSound());
+        pref.setRideCancelledSound(req.getRideCancelledSound());
+        pref.setRideCompletedSound(req.getRideCompletedSound());
+        pref.setMessageSound(req.getMessageSound());
+        pref.setSosSound(req.getSosSound());
+        pref.setNotificationVolume(req.getNotificationVolume());
+
+        userSoundPreferenceRepository.save(pref);
+
+        auditPort.log("SOUND_PREFS_UPDATED", "UserSoundPreference", pref.getId(),
+                null, "volume=" + req.getNotificationVolume(), userId);
+
+        return SoundPreferenceResponse.builder()
+                .rideRequestSound(pref.getRideRequestSound())
+                .rideAcceptedSound(pref.getRideAcceptedSound())
+                .rideCancelledSound(pref.getRideCancelledSound())
+                .rideCompletedSound(pref.getRideCompletedSound())
+                .messageSound(pref.getMessageSound())
+                .sosSound(pref.getSosSound())
+                .notificationVolume(pref.getNotificationVolume())
                 .build();
     }
 }

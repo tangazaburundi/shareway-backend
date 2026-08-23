@@ -63,6 +63,12 @@ public class RideController {
         return ResponseEntity.ok(ApiResponse.ok(rideUseCase.getNearbyDrivers(lat, lng, max)));
     }
 
+    @GetMapping("/config/timeout")
+    @Operation(summary = "Timeout de recherche en secondes (public)")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getSearchTimeout() {
+        return ResponseEntity.ok(ApiResponse.ok(rideUseCase.getSearchTimeoutConfig()));
+    }
+
     // ════════════════════════════════════════════════════════════════
     // PASSENGER
     // ════════════════════════════════════════════════════════════════
@@ -157,6 +163,14 @@ public class RideController {
         String reason = body != null ? body.get("reason") : null;
         rideUseCase.rejectRide(id, SecurityUtils.currentUserId(), reason);
         return ResponseEntity.ok(ApiResponse.noContent("Course refusée"));
+    }
+
+    @PostMapping("/{id}/timeout")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Timeout — le chauffeur n'a pas répondu à temps")
+    public ResponseEntity<ApiResponse<Void>> timeoutRide(@PathVariable String id) {
+        rideUseCase.timeoutRide(id, SecurityUtils.currentUserId());
+        return ResponseEntity.ok(ApiResponse.noContent("Timeout traité"));
     }
 
     @PostMapping("/{id}/driver-en-route")
