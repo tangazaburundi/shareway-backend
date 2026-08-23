@@ -2,7 +2,7 @@ package com.shareway.application.usecase;
 
 import com.shareway.application.dto.request.CreateRideRequest;
 import com.shareway.application.dto.request.RateRideRequest;
-import com.shareway.application.dto.request.RespondRideRequest;
+
 import com.shareway.application.dto.request.UpdateDriverLocationRequest;
 import com.shareway.application.dto.response.DriverAvailabilityResponse;
 import com.shareway.application.dto.response.NearbyDriverResponse;
@@ -35,6 +35,8 @@ import com.shareway.domain.repository.SmsConfigRepository;
 import com.shareway.domain.repository.EmergencyContactRepository;
 import com.shareway.domain.repository.SystemSettingRepository;
 import com.shareway.domain.repository.UserDocumentRepository;
+import com.shareway.domain.repository.FuelEntryRepository;
+import com.shareway.domain.model.FuelEntry;
 import com.shareway.domain.model.UserDocument;
 import com.shareway.domain.service.DriverMatchingService;
 import com.shareway.domain.service.RidePricingService;
@@ -84,6 +86,7 @@ public class RideUseCase {
     private final AuditPort auditPort;
     private final PushNotificationPort pushNotificationPort;
     private final SimpMessagingTemplate messaging;
+    private final FuelEntryRepository fuelEntryRepository;
 
     // In-memory store for ride chat messages (ephemeral, lives until server restart)
     private final ConcurrentHashMap<String, List<Map<String, Object>>> rideMessages = new ConcurrentHashMap<>();
@@ -1680,5 +1683,265 @@ public class RideUseCase {
                     rebroadcastCount, cancelledCount, timeout);
         }
         return rebroadcastCount + cancelledCount;
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // EARNINGS — Détail mensuel + carburant
+    // ════════════════════════════════════════════════════════════════
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getDriverEarningsDetailed(String driverId) {
+        User driver = userRepository.findById(driverId)
+                .orElseThrow(() -> new UserNotFoundException("Chauffeur non trouvé: " + driverId));
+
+        List<RideRequest> completedRides = rideRequestRepository
+                .findByDriverAndStatus(driver, RideRequest.RideStatus.COMPLETED);
+
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+
+        // ── Tous les temps ─────────────────────────────────────
+        BigDecimal totalGross = completedRides.stream()
+                .map(r -> r.getFinalPrice() != null ? r.getFinalPrice() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal totalNet = completedRides.stream()
+                .map(r -> r.getDriverEarnings() != null ? r.getDriverEarnings() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal totalFees = completedRides.stream()
+                .map(r -> r.getPlatformFeeAmount() != null ? r.getPlatformFeeAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal totalKm = completedRides.stream()
+                .map(r -> r.getEstimatedDistanceKm() != null ? r.getEstimatedDistanceKm() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        long totalTrips = completedRides.size();
+
+        // Fuel total (all time)
+        BigDecimal totalFuelLiters = fuelEntryRepository.sumAllLitersByDriver(driver);
+        BigDecimal totalFuelCost = fuelEntryRepository.sumAllCostByDriver(driver);
+
+        // ── Ce mois ────────────────────────────────────────────
+        java.time.LocalDate monthStart = now.toLocalDate().withDayOfMonth(1);
+        java.time.LocalDate monthEnd = monthStart.plusMonths(1);
+
+        BigDecimal monthGross = completedRides.stream()
+                .filter(r -> r.getCompletedAt() != null && r.getCompletedAt().isAfter(monthStart.atStartOfDay()))
+                .map(r -> r.getFinalPrice() != null ? r.getFinalPrice() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal monthNet = completedRides.stream()
+                .filter(r -> r.getCompletedAt() != null && r.getCompletedAt().isAfter(monthStart.atStartOfDay()))
+                .map(r -> r.getDriverEarnings() != null ? r.getDriverEarnings() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal monthFees = completedRides.stream()
+                .filter(r -> r.getCompletedAt() != null && r.getCompletedAt().isAfter(monthStart.atStartOfDay()))
+                .map(r -> r.getPlatformFeeAmount() != null ? r.getPlatformFeeAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal monthKm = completedRides.stream()
+                .filter(r -> r.getCompletedAt() != null && r.getCompletedAt().isAfter(monthStart.atStartOfDay()))
+                .map(r -> r.getEstimatedDistanceKm() != null ? r.getEstimatedDistanceKm() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        long monthTrips = completedRides.stream()
+                .filter(r -> r.getCompletedAt() != null && r.getCompletedAt().isAfter(monthStart.atStartOfDay()))
+                .count();
+
+        BigDecimal monthFuelLiters = fuelEntryRepository.sumLitersByDriverAndDateRange(driver, monthStart, monthEnd);
+        BigDecimal monthFuelCost = fuelEntryRepository.sumCostByDriverAndDateRange(driver, monthStart, monthEnd);
+
+        // ── Breakdown mensuel (12 derniers mois) ────────────────
+        List<Map<String, Object>> monthlyBreakdown = new ArrayList<>();
+        for (int i = 11; i >= 0; i--) {
+            java.time.LocalDate mStart = now.toLocalDate().withDayOfMonth(1).minusMonths(i);
+            java.time.LocalDate mEnd = mStart.plusMonths(1);
+            String monthKey = mStart.getYear() + "-" + String.format("%02d", mStart.getMonthValue());
+
+            List<RideRequest> monthRides = completedRides.stream()
+                    .filter(r -> r.getCompletedAt() != null
+                            && !r.getCompletedAt().isBefore(mStart.atStartOfDay())
+                            && r.getCompletedAt().isBefore(mEnd.atStartOfDay()))
+                    .toList();
+
+            BigDecimal mGross = monthRides.stream()
+                    .map(r -> r.getFinalPrice() != null ? r.getFinalPrice() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal mNet = monthRides.stream()
+                    .map(r -> r.getDriverEarnings() != null ? r.getDriverEarnings() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal mFees = monthRides.stream()
+                    .map(r -> r.getPlatformFeeAmount() != null ? r.getPlatformFeeAmount() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal mKm = monthRides.stream()
+                    .map(r -> r.getEstimatedDistanceKm() != null ? r.getEstimatedDistanceKm() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            BigDecimal mFuelLiters = fuelEntryRepository.sumLitersByDriverAndDateRange(driver, mStart, mEnd);
+            BigDecimal mFuelCost = fuelEntryRepository.sumCostByDriverAndDateRange(driver, mStart, mEnd);
+
+            Map<String, Object> monthData = new java.util.LinkedHashMap<>();
+            monthData.put("month", monthKey);
+            monthData.put("monthLabel", mStart.getMonth().getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.FRANCE));
+            monthData.put("year", mStart.getYear());
+            monthData.put("trips", monthRides.size());
+            monthData.put("grossEarnings", mGross);
+            monthData.put("netEarnings", mNet);
+            monthData.put("platformFees", mFees);
+            monthData.put("distanceKm", mKm);
+            monthData.put("fuelLiters", mFuelLiters);
+            monthData.put("fuelCost", mFuelCost);
+            monthlyBreakdown.add(monthData);
+        }
+
+        // Currency from completed rides
+        String currency = completedRides.isEmpty() ? "FBU" :
+                completedRides.get(0).getCurrency().name();
+
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("currency", currency);
+
+        // All-time totals
+        Map<String, Object> allTime = new java.util.LinkedHashMap<>();
+        allTime.put("totalTrips", totalTrips);
+        allTime.put("grossEarnings", totalGross);
+        allTime.put("netEarnings", totalNet);
+        allTime.put("platformFees", totalFees);
+        allTime.put("distanceKm", totalKm);
+        allTime.put("fuelLiters", totalFuelLiters);
+        allTime.put("fuelCost", totalFuelCost);
+        result.put("allTime", allTime);
+
+        // Current month
+        Map<String, Object> currentMonth = new java.util.LinkedHashMap<>();
+        currentMonth.put("monthLabel", now.getMonth().getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.FRANCE));
+        currentMonth.put("trips", monthTrips);
+        currentMonth.put("grossEarnings", monthGross);
+        currentMonth.put("netEarnings", monthNet);
+        currentMonth.put("platformFees", monthFees);
+        currentMonth.put("distanceKm", monthKm);
+        currentMonth.put("fuelLiters", monthFuelLiters);
+        currentMonth.put("fuelCost", monthFuelCost);
+        result.put("currentMonth", currentMonth);
+
+        result.put("monthlyBreakdown", monthlyBreakdown);
+
+        return result;
+    }
+
+    @Transactional
+    public FuelEntry addFuelEntry(String driverId, Map<String, Object> request) {
+        User driver = userRepository.findById(driverId)
+                .orElseThrow(() -> new UserNotFoundException("Chauffeur non trouvé: " + driverId));
+
+        FuelEntry entry = FuelEntry.builder()
+                .driver(driver)
+                .refuelDate(java.time.LocalDate.parse((String) request.get("refuelDate")))
+                .liters(new java.math.BigDecimal(request.get("liters").toString()))
+                .pricePerLiter(new java.math.BigDecimal(request.get("pricePerLiter").toString()))
+                .currency(request.getOrDefault("currency", "FBU").toString())
+                .odometerKm(request.get("odometerKm") != null ?
+                        new java.math.BigDecimal(request.get("odometerKm").toString()) : null)
+                .stationName((String) request.get("stationName"))
+                .notes((String) request.get("notes"))
+                .build();
+
+        return fuelEntryRepository.save(entry);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // EARNINGS — Détail journalier (calendrier)
+    // ════════════════════════════════════════════════════════════════
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getDriverEarningsDaily(String driverId, int year, int month) {
+        User driver = userRepository.findById(driverId)
+                .orElseThrow(() -> new UserNotFoundException("Chauffeur non trouvé: " + driverId));
+
+        java.time.LocalDate monthStart = java.time.LocalDate.of(year, month, 1);
+        java.time.LocalDate monthEnd = monthStart.plusMonths(1);
+
+        List<RideRequest> completedRides = rideRequestRepository
+                .findByDriverAndStatus(driver, RideRequest.RideStatus.COMPLETED);
+
+        // Filter rides for this month
+        List<RideRequest> monthRides = completedRides.stream()
+                .filter(r -> r.getCompletedAt() != null
+                        && !r.getCompletedAt().isBefore(monthStart.atStartOfDay())
+                        && r.getCompletedAt().isBefore(monthEnd.atStartOfDay()))
+                .toList();
+
+        // Fuel entries for this month
+        List<FuelEntry> monthFuel = fuelEntryRepository.findByDriverAndDateRange(driver, monthStart, monthEnd);
+
+        // Build daily map
+        Map<String, Map<String, Object>> dailyMap = new java.util.LinkedHashMap<>();
+
+        // Initialize all days of the month
+        for (int d = 1; d <= monthStart.lengthOfMonth(); d++) {
+            String dayKey = String.format("%04d-%02d-%02d", year, month, d);
+            Map<String, Object> dayData = new java.util.LinkedHashMap<>();
+            dayData.put("date", dayKey);
+            dayData.put("dayOfMonth", d);
+            dayData.put("grossEarnings", BigDecimal.ZERO);
+            dayData.put("netEarnings", BigDecimal.ZERO);
+            dayData.put("platformFees", BigDecimal.ZERO);
+            dayData.put("distanceKm", BigDecimal.ZERO);
+            dayData.put("trips", 0);
+            dayData.put("fuelLiters", BigDecimal.ZERO);
+            dayData.put("fuelCost", BigDecimal.ZERO);
+            dayData.put("rides", new ArrayList<>());
+            dailyMap.put(dayKey, dayData);
+        }
+
+        // Populate rides per day
+        for (RideRequest ride : monthRides) {
+            String dayKey = ride.getCompletedAt().toLocalDate().toString();
+            Map<String, Object> day = dailyMap.get(dayKey);
+            if (day == null) continue;
+
+            day.put("grossEarnings", ((BigDecimal) day.get("grossEarnings"))
+                    .add(ride.getFinalPrice() != null ? ride.getFinalPrice() : BigDecimal.ZERO));
+            day.put("netEarnings", ((BigDecimal) day.get("netEarnings"))
+                    .add(ride.getDriverEarnings() != null ? ride.getDriverEarnings() : BigDecimal.ZERO));
+            day.put("platformFees", ((BigDecimal) day.get("platformFees"))
+                    .add(ride.getPlatformFeeAmount() != null ? ride.getPlatformFeeAmount() : BigDecimal.ZERO));
+            day.put("distanceKm", ((BigDecimal) day.get("distanceKm"))
+                    .add(ride.getEstimatedDistanceKm() != null ? ride.getEstimatedDistanceKm() : BigDecimal.ZERO));
+            day.put("trips", (int) day.get("trips") + 1);
+
+            // Ride summary for the list
+            Map<String, Object> rideSummary = new java.util.LinkedHashMap<>();
+            rideSummary.put("id", ride.getId());
+            rideSummary.put("pickupAddress", ride.getPickupAddress());
+            rideSummary.put("destinationAddress", ride.getDestinationAddress());
+            rideSummary.put("finalPrice", ride.getFinalPrice());
+            rideSummary.put("driverEarnings", ride.getDriverEarnings());
+            rideSummary.put("estimatedDistanceKm", ride.getEstimatedDistanceKm());
+            rideSummary.put("estimatedDurationMin", ride.getEstimatedDurationMin());
+            rideSummary.put("currency", ride.getCurrency().name());
+            rideSummary.put("completedAt", ride.getCompletedAt() != null ? ride.getCompletedAt().toString() : null);
+            @SuppressWarnings("unchecked")
+            ArrayList<Map<String, Object>> ridesList = (ArrayList<Map<String, Object>>) day.get("rides");
+            ridesList.add(rideSummary);
+        }
+
+        // Populate fuel per day
+        for (FuelEntry fuel : monthFuel) {
+            String dayKey = fuel.getRefuelDate().toString();
+            Map<String, Object> day = dailyMap.get(dayKey);
+            if (day == null) continue;
+            day.put("fuelLiters", ((BigDecimal) day.get("fuelLiters")).add(fuel.getLiters()));
+            day.put("fuelCost", ((BigDecimal) day.get("fuelCost"))
+                    .add(fuel.getTotalCost() != null ? fuel.getTotalCost() : BigDecimal.ZERO));
+        }
+
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("year", year);
+        result.put("month", month);
+        result.put("days", new ArrayList<>(dailyMap.values()));
+        return result;
     }
 }
