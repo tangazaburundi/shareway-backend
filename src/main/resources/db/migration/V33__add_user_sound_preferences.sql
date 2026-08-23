@@ -1,9 +1,10 @@
 CREATE TABLE IF NOT EXISTS user_sound_preferences (
     id VARCHAR(36) NOT NULL PRIMARY KEY,
-    user_id VARCHAR(36) NOT NULL,
+    user_id VARCHAR(255) NOT NULL,
     ride_request_sound VARCHAR(50) NOT NULL DEFAULT 'classic',
     ride_accepted_sound VARCHAR(50) NOT NULL DEFAULT 'success',
     ride_cancelled_sound VARCHAR(50) NOT NULL DEFAULT 'alert',
+    ride_completed_sound VARCHAR(50) NOT NULL DEFAULT 'tada',
     message_sound VARCHAR(50) NOT NULL DEFAULT 'ping',
     sos_sound VARCHAR(50) NOT NULL DEFAULT 'siren',
     notification_volume DECIMAL(3,2) NOT NULL DEFAULT 0.30,
