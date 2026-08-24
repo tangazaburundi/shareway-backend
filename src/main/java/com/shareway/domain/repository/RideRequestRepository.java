@@ -51,6 +51,12 @@ public interface RideRequestRepository extends JpaRepository<RideRequest, String
 
     List<RideRequest> findByDriverAndStatus(User driver, RideRequest.RideStatus status);
 
+    @Query("SELECT r FROM RideRequest r WHERE r.driver.id = :driverId AND r.status = :status ORDER BY r.createdAt DESC")
+    List<RideRequest> findByDriverIdAndStatusOrderByCreatedAtDesc(@Param("driverId") String driverId, @Param("status") RideRequest.RideStatus status);
+
+    @Query("SELECT r FROM RideRequest r WHERE r.passenger.id = :passengerId AND r.status = :status ORDER BY r.createdAt DESC")
+    List<RideRequest> findByPassengerIdAndStatusOrderByCreatedAtDesc(@Param("passengerId") String passengerId, @Param("status") RideRequest.RideStatus status);
+
     @Query("SELECT r FROM RideRequest r WHERE r.status = 'DRIVER_FOUND' " +
             "AND r.driverNotifiedAt IS NOT NULL AND r.driverNotifiedAt < :cutoff")
     List<RideRequest> findExpiredDriverFound(@Param("cutoff") LocalDateTime cutoff);

@@ -152,6 +152,12 @@ public class RideRequest {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    @Column(name = "archived_at")
+    private LocalDateTime archivedAt;
+
+    @Column(name = "rendered_at")
+    private LocalDateTime renderedAt;
+
     @PrePersist
     public void prePersist() {
         createdAt = LocalDateTime.now();
@@ -214,6 +220,16 @@ public class RideRequest {
         this.status = RideStatus.EXPIRED;
     }
 
+    public void render() {
+        this.status = RideStatus.RENDERED;
+        this.renderedAt = LocalDateTime.now();
+    }
+
+    public void archive() {
+        this.status = RideStatus.ARCHIVED;
+        this.archivedAt = LocalDateTime.now();
+    }
+
     private void calculateFees() {
         if (finalPrice == null) return;
         this.platformFeeAmount = finalPrice.multiply(platformFeePercent)
@@ -243,7 +259,7 @@ public class RideRequest {
     }
 
     public enum RideStatus {
-        SEARCHING, DRIVER_FOUND, ACCEPTED, DRIVER_EN_ROUTE, ARRIVED, IN_PROGRESS, COMPLETED, CANCELLED, EXPIRED
+        SEARCHING, DRIVER_FOUND, ACCEPTED, DRIVER_EN_ROUTE, ARRIVED, IN_PROGRESS, COMPLETED, CANCELLED, EXPIRED, RENDERED, ARCHIVED
     }
 
     public enum CancelledBy {

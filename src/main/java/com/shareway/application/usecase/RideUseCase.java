@@ -714,6 +714,7 @@ public class RideUseCase {
 
         ride.cancelByDriver(reason);
         rideRequestDomainService.releaseDriver(driverId);
+        applyCooldownPenalty(driverId);
         rideRequestRepository.save(ride);
 
         // Notifier le passager
@@ -752,6 +753,43 @@ public class RideUseCase {
     }
 
     // ════════════════════════════════════════════════════════════════
+    // HISTORY — Filtré par statut (passager + chauffeur)
+    // ════════════════════════════════════════════════════════════════
+
+    @Transactional(readOnly = true)
+    public List<RideResponse> getPassengerHistoryByStatus(String passengerId, RideRequest.RideStatus status) {
+        return rideRequestRepository.findByPassengerIdAndStatusOrderByCreatedAtDesc(passengerId, status).stream()
+                .map(r -> toResponse(r, null))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<RideResponse> getDriverHistoryByStatus(String driverId, RideRequest.RideStatus status) {
+        return rideRequestRepository.findByDriverIdAndStatusOrderByCreatedAtDesc(driverId, status).stream()
+                .map(r -> toResponse(r, null))
+                .toList();
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // ARCHIVE — Archiver une course
+    // ════════════════════════════════════════════════════════════════
+
+    @Transactional
+    public void archiveRide(String rideId, String userId) {
+        RideRequest ride = rideRequestRepository.findById(rideId)
+                .orElseThrow(() -> new RideNotFoundException("Course introuvable"));
+
+        boolean isPassenger = ride.getPassenger() != null && ride.getPassenger().getId().equals(userId);
+        boolean isDriver = ride.getDriver() != null && ride.getDriver().getId().equals(userId);
+        if (!isPassenger && !isDriver) {
+            throw new RuntimeException("Vous n'avez pas accès à cette course");
+        }
+
+        ride.archive();
+        rideRequestRepository.save(ride);
+    }
+
+    // ════════════════════════════════════════════════════════════════
     // CHAUFFEUR — Toggle disponibilité
     // ════════════════════════════════════════════════════════════════
 
@@ -769,6 +807,15 @@ public class RideUseCase {
         if (availability.getStatus() == DriverAvailability.DriverStatus.BUSY
                 || availability.getStatus() == DriverAvailability.DriverStatus.ON_TRIP) {
             throw new InvalidOperationException("Impossible de changer de statut pendant une course");
+        }
+
+        if (!availability.isAvailable()) {
+            User driver = userRepository.findByIdAndDeletedAtIsNull(driverId).orElse(null);
+            if (driver != null && driver.getBlockedUntil() != null
+                    && driver.getBlockedUntil().isAfter(LocalDateTime.now())) {
+                long remaining = java.time.Duration.between(LocalDateTime.now(), driver.getBlockedUntil()).toSeconds();
+                throw new InvalidOperationException("Cooldown actif. Veuillez patienter " + (remaining / 60) + " min " + (remaining % 60) + " sec avant de vous remettre en ligne.");
+            }
         }
 
         if (availability.isAvailable()) {
@@ -1395,8 +1442,9 @@ public class RideUseCase {
         }
 
         rideRequestDomainService.releaseDriver(driverId);
+        applyCooldownPenalty(driverId);
         ride.setDriver(null);
-        ride.setStatus(RideRequest.RideStatus.SEARCHING);
+        ride.render();
         ride.setSearchStartedAt(LocalDateTime.now());
         ride.setSearchTimeoutAt(LocalDateTime.now().plusMinutes(3));
         rideRequestRepository.save(ride);
@@ -1404,8 +1452,14 @@ public class RideUseCase {
         // Notifier l'ancien chauffeur
         messaging.convertAndSendToUser(driverId, "/queue/ride-update", Map.of(
                 "rideId", rideId,
-                "status", "TRANSFERRED",
+                "status", "RENDERED",
                 "message", "Course rendue — recherche d'un autre chauffeur..."));
+
+        // Notifier tous les chauffeurs proches du statut RENDERED
+        messaging.convertAndSend("/topic/ride/" + rideId + "/status", Map.of(
+                "rideId", rideId,
+                "status", "RENDERED",
+                "message", "Course rendue par le chauffeur"));
 
         // Chercher le chauffeur le plus proche
         List<DriverAvailability> nearby = driverMatchingService.findNearbyDrivers(
@@ -1420,25 +1474,24 @@ public class RideUseCase {
         }
 
         if (nearestDriver == null) {
-            ride.cancelByPassenger("Aucun autre chauffeur disponible — course rendue");
+            ride.render();
             rideRequestRepository.save(ride);
-            rideRequestDomainService.releaseDriver(driverId);
 
             messaging.convertAndSendToUser(
                     ride.getPassenger().getId(),
                     "/queue/ride-update",
                     Map.of(
                             "rideId", rideId,
-                            "status", "CANCELLED",
-                            "message", "Aucun autre chauffeur disponible. Votre course a été annulée."));
+                            "status", "RENDERED",
+                            "message", "Aucun autre chauffeur disponible. Votre course a été rendue."));
 
             notificationPort.notify(
                     ride.getPassenger().getId(),
-                    "CANCELLATION",
-                    "Course annulée",
+                    "RENDERED",
+                    "Course rendue",
                     "Aucun autre chauffeur n'a été trouvé pour reprendre votre course.");
 
-            auditPort.log("RIDE_TRANSFER_CANCELLED", "RideRequest", rideId,
+            auditPort.log("RIDE_RENDERED", "RideRequest", rideId,
                     null, "Aucun autre chauffeur disponible pour transfert", driverId);
             return toResponse(ride, null);
         }
@@ -1484,6 +1537,27 @@ public class RideUseCase {
     }
 
     // ════════════════════════════════════════════════════════════════
+    // CHAUFFEUR — Statut cooldown
+    // ════════════════════════════════════════════════════════════════
+
+    public java.util.Map<String, Object> getDriverCooldownStatus(String driverId) {
+        var map = new java.util.LinkedHashMap<String, Object>();
+        User driver = userRepository.findByIdAndDeletedAtIsNull(driverId).orElse(null);
+        if (driver != null && driver.getBlockedUntil() != null
+                && driver.getBlockedUntil().isAfter(LocalDateTime.now())) {
+            long remainingSec = java.time.Duration.between(LocalDateTime.now(), driver.getBlockedUntil()).toSeconds();
+            map.put("blocked", true);
+            map.put("remainingSeconds", remainingSec);
+            map.put("blockedUntil", driver.getBlockedUntil().toString());
+        } else {
+            map.put("blocked", false);
+            map.put("remainingSeconds", 0);
+        }
+        map.put("cooldownMinutes", getDriverCooldownMinutes());
+        return map;
+    }
+
+    // ════════════════════════════════════════════════════════════════
     // AUTO-CANCEL — Courses expirées (timeout configurable via admin)
     // ════════════════════════════════════════════════════════════════
 
@@ -1503,6 +1577,24 @@ public class RideUseCase {
                     catch (NumberFormatException e) { return 2; }
                 })
                 .orElse(2);
+    }
+
+    private int getDriverCooldownMinutes() {
+        return systemSettingRepository.findByKey("ride.driver_cooldown_minutes")
+                .map(s -> {
+                    try { return Integer.parseInt(s.getValue()); }
+                    catch (NumberFormatException e) { return 15; }
+                })
+                .orElse(15);
+    }
+
+    private void applyCooldownPenalty(String driverId) {
+        int minutes = getDriverCooldownMinutes();
+        if (minutes <= 0) return;
+        userRepository.findByIdAndDeletedAtIsNull(driverId).ifPresent(driver -> {
+            driver.setBlockedUntil(LocalDateTime.now().plusMinutes(minutes));
+            userRepository.save(driver);
+        });
     }
 
     public Map<String, Object> getSearchTimeoutConfig() {
@@ -1849,6 +1941,59 @@ public class RideUseCase {
                 .build();
 
         return fuelEntryRepository.save(entry);
+    }
+
+    @Transactional
+    public FuelEntry updateFuelEntry(String driverId, String entryId, Map<String, Object> request) {
+        User driver = userRepository.findById(driverId)
+                .orElseThrow(() -> new UserNotFoundException("Chauffeur non trouvé: " + driverId));
+
+        FuelEntry entry = fuelEntryRepository.findByIdAndDriver(entryId, driver)
+                .orElseThrow(() -> new RuntimeException("Entrée de carburant non trouvée"));
+
+        if (request.containsKey("refuelDate")) {
+            entry.setRefuelDate(java.time.LocalDate.parse((String) request.get("refuelDate")));
+        }
+        if (request.containsKey("liters")) {
+            entry.setLiters(new java.math.BigDecimal(request.get("liters").toString()));
+        }
+        if (request.containsKey("pricePerLiter")) {
+            entry.setPricePerLiter(new java.math.BigDecimal(request.get("pricePerLiter").toString()));
+        }
+        if (request.containsKey("currency")) {
+            entry.setCurrency(request.get("currency").toString());
+        }
+        if (request.containsKey("odometerKm")) {
+            entry.setOdometerKm(request.get("odometerKm") != null ?
+                    new java.math.BigDecimal(request.get("odometerKm").toString()) : null);
+        }
+        if (request.containsKey("stationName")) {
+            entry.setStationName((String) request.get("stationName"));
+        }
+        if (request.containsKey("notes")) {
+            entry.setNotes((String) request.get("notes"));
+        }
+
+        return fuelEntryRepository.save(entry);
+    }
+
+    @Transactional
+    public void deleteFuelEntry(String driverId, String entryId) {
+        User driver = userRepository.findById(driverId)
+                .orElseThrow(() -> new UserNotFoundException("Chauffeur non trouvé: " + driverId));
+
+        FuelEntry entry = fuelEntryRepository.findByIdAndDriver(entryId, driver)
+                .orElseThrow(() -> new RuntimeException("Entrée de carburant non trouvée"));
+
+        fuelEntryRepository.delete(entry);
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.List<FuelEntry> getFuelEntries(String driverId) {
+        User driver = userRepository.findById(driverId)
+                .orElseThrow(() -> new UserNotFoundException("Chauffeur non trouvé: " + driverId));
+
+        return fuelEntryRepository.findByDriverOrderByRefuelDateDesc(driver);
     }
 
     // ════════════════════════════════════════════════════════════════

@@ -9,9 +9,12 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface FuelEntryRepository extends JpaRepository<FuelEntry, String> {
+
+    Optional<FuelEntry> findByIdAndDriver(String id, User driver);
 
     List<FuelEntry> findByDriverOrderByRefuelDateDesc(User driver);
 

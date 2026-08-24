@@ -91,6 +91,9 @@ public class User {
     @Column(name = "blocked_by_id")
     private String blockedById;
 
+    @Column(name = "blocked_until")
+    private LocalDateTime blockedUntil;
+
     // Email verification
     @Column(name = "email_verified")
     @Builder.Default

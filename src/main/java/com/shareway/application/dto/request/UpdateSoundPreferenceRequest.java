@@ -20,6 +20,9 @@ public class UpdateSoundPreferenceRequest {
     private String rideCompletedSound = "tada";
 
     @Size(max = 50)
+    private String rideRenderedSound = "transfer";
+
+    @Size(max = 50)
     private String messageSound = "ping";
 
     @Size(max = 50)

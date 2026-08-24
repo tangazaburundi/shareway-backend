@@ -38,6 +38,10 @@ public class UserSoundPreference {
     @Builder.Default
     private String rideCompletedSound = "tada";
 
+    @Column(name = "ride_rendered_sound", nullable = false, length = 50)
+    @Builder.Default
+    private String rideRenderedSound = "transfer";
+
     @Column(name = "message_sound", nullable = false, length = 50)
     @Builder.Default
     private String messageSound = "ping";

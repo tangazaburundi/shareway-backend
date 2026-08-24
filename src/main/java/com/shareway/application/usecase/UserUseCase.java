@@ -622,6 +622,7 @@ public class UserUseCase {
                 .rideAcceptedSound(pref.getRideAcceptedSound())
                 .rideCancelledSound(pref.getRideCancelledSound())
                 .rideCompletedSound(pref.getRideCompletedSound())
+                .rideRenderedSound(pref.getRideRenderedSound())
                 .messageSound(pref.getMessageSound())
                 .sosSound(pref.getSosSound())
                 .notificationVolume(pref.getNotificationVolume())
@@ -638,6 +639,7 @@ public class UserUseCase {
         pref.setRideAcceptedSound(req.getRideAcceptedSound());
         pref.setRideCancelledSound(req.getRideCancelledSound());
         pref.setRideCompletedSound(req.getRideCompletedSound());
+        pref.setRideRenderedSound(req.getRideRenderedSound());
         pref.setMessageSound(req.getMessageSound());
         pref.setSosSound(req.getSosSound());
         pref.setNotificationVolume(req.getNotificationVolume());
@@ -652,6 +654,7 @@ public class UserUseCase {
                 .rideAcceptedSound(pref.getRideAcceptedSound())
                 .rideCancelledSound(pref.getRideCancelledSound())
                 .rideCompletedSound(pref.getRideCompletedSound())
+                .rideRenderedSound(pref.getRideRenderedSound())
                 .messageSound(pref.getMessageSound())
                 .sosSound(pref.getSosSound())
                 .notificationVolume(pref.getNotificationVolume())
