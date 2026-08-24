@@ -15,6 +15,7 @@ public class SoundPreferenceResponse {
     private String rideAcceptedSound;
     private String rideCancelledSound;
     private String rideCompletedSound;
+    private String rideRenderedSound;
     private String messageSound;
     private String sosSound;
     private BigDecimal notificationVolume;

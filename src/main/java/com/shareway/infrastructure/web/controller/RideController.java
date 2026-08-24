@@ -13,6 +13,7 @@ import com.shareway.application.dto.response.RideRatingResponse;
 import com.shareway.application.dto.response.RideResponse;
 import com.shareway.application.dto.response.SmsConfigResponse;
 import com.shareway.application.usecase.RideUseCase;
+import com.shareway.domain.model.RideRequest;
 import com.shareway.infrastructure.security.SecurityUtils;
 import com.shareway.domain.service.InvoiceService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -99,6 +100,23 @@ public class RideController {
     public ResponseEntity<ApiResponse<List<RideResponse>>> getMyHistory() {
         return ResponseEntity.ok(ApiResponse.ok(
                 rideUseCase.getPassengerHistory(SecurityUtils.currentUserId())));
+    }
+
+    @GetMapping("/my-history/filtered")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Historique des courses du passager filtré par statut")
+    public ResponseEntity<ApiResponse<List<RideResponse>>> getMyHistoryByStatus(
+            @RequestParam RideRequest.RideStatus status) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                rideUseCase.getPassengerHistoryByStatus(SecurityUtils.currentUserId(), status)));
+    }
+
+    @PostMapping("/{id}/archive")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Archiver une course")
+    public ResponseEntity<ApiResponse<Void>> archiveRide(@PathVariable String id) {
+        rideUseCase.archiveRide(id, SecurityUtils.currentUserId());
+        return ResponseEntity.ok(ApiResponse.ok(null, "Course archivée"));
     }
 
     @GetMapping("/{id}")
@@ -278,6 +296,14 @@ public class RideController {
                 rideUseCase.getDriverAvailability(SecurityUtils.currentUserId())));
     }
 
+    @GetMapping("/driver/cooldown")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Statut du cooldown du chauffeur")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> getCooldownStatus() {
+        return ResponseEntity.ok(ApiResponse.ok(
+                rideUseCase.getDriverCooldownStatus(SecurityUtils.currentUserId())));
+    }
+
     @PutMapping("/driver/location")
     @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Mettre à jour la position GPS du chauffeur")
@@ -302,6 +328,15 @@ public class RideController {
     public ResponseEntity<ApiResponse<List<RideResponse>>> getDriverHistory() {
         return ResponseEntity.ok(ApiResponse.ok(
                 rideUseCase.getDriverHistory(SecurityUtils.currentUserId())));
+    }
+
+    @GetMapping("/driver/history/filtered")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Historique des courses du chauffeur filtré par statut")
+    public ResponseEntity<ApiResponse<List<RideResponse>>> getDriverHistoryByStatus(
+            @RequestParam RideRequest.RideStatus status) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                rideUseCase.getDriverHistoryByStatus(SecurityUtils.currentUserId(), status)));
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -447,6 +482,33 @@ public class RideController {
                 .body(ApiResponse.ok(
                         rideUseCase.addFuelEntry(SecurityUtils.currentUserId(), body),
                         "Entrée de carburant enregistrée"));
+    }
+
+    @GetMapping("/driver/fuel-entries")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Lister les entrées de carburant du chauffeur")
+    public ResponseEntity<ApiResponse<java.util.List<com.shareway.domain.model.FuelEntry>>> getFuelEntries() {
+        return ResponseEntity.ok(ApiResponse.ok(
+                rideUseCase.getFuelEntries(SecurityUtils.currentUserId())));
+    }
+
+    @PutMapping("/driver/fuel-entries/{id}")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Modifier une entrée de carburant")
+    public ResponseEntity<ApiResponse<com.shareway.domain.model.FuelEntry>> updateFuelEntry(
+            @PathVariable String id,
+            @RequestBody Map<String, Object> body) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                rideUseCase.updateFuelEntry(SecurityUtils.currentUserId(), id, body),
+                "Entrée de carburant mise à jour"));
+    }
+
+    @DeleteMapping("/driver/fuel-entries/{id}")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Supprimer une entrée de carburant")
+    public ResponseEntity<ApiResponse<Void>> deleteFuelEntry(@PathVariable String id) {
+        rideUseCase.deleteFuelEntry(SecurityUtils.currentUserId(), id);
+        return ResponseEntity.ok(ApiResponse.ok(null, "Entrée de carburant supprimée"));
     }
 
     // ════════════════════════════════════════════════════════════════
