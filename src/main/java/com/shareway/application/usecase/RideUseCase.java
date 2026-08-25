@@ -798,9 +798,9 @@ public class RideUseCase {
         RideRequest ride = rideRequestRepository.findById(rideId)
                 .orElseThrow(() -> new RideNotFoundException("Course introuvable"));
 
-        boolean isPassenger = ride.getPassenger() != null && ride.getPassenger().getId().equals(userId);
-        if (!isPassenger) {
-            throw new RuntimeException("Seul le passager peut payer cette course");
+        boolean isDriver = ride.getDriver() != null && ride.getDriver().getId().equals(userId);
+        if (!isDriver) {
+            throw new RuntimeException("Seul le chauffeur peut confirmer la réception du paiement");
         }
 
         ride.markAsPaid();
