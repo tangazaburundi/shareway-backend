@@ -230,6 +230,10 @@ public class RideRequest {
         this.archivedAt = LocalDateTime.now();
     }
 
+    public void markAsPaid() {
+        this.paymentStatus = PaymentStatus.CAPTURED;
+    }
+
     private void calculateFees() {
         if (finalPrice == null) return;
         this.platformFeeAmount = finalPrice.multiply(platformFeePercent)

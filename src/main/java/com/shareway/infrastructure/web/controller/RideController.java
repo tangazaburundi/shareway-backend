@@ -3,6 +3,7 @@ package com.shareway.infrastructure.web.controller;
 import com.shareway.application.dto.request.CreateRideRequest;
 import com.shareway.application.dto.request.RateRideRequest;
 import com.shareway.application.dto.request.RespondRideRequest;
+import com.shareway.application.dto.request.SosAlertRequest;
 import com.shareway.application.dto.request.UpdateDriverLocationRequest;
 import com.shareway.application.dto.response.ApiResponse;
 import com.shareway.application.dto.response.DriverAvailabilityResponse;
@@ -148,6 +149,15 @@ public class RideController {
                 .body(ApiResponse.ok(
                         rideUseCase.rateRide(id, req, SecurityUtils.currentUserId()),
                         "Merci pour votre avis !"));
+    }
+
+    @PostMapping("/{id}/pay")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Marquer une course comme payée")
+    public ResponseEntity<ApiResponse<RideResponse>> payRide(@PathVariable String id) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                rideUseCase.payRide(id, SecurityUtils.currentUserId()),
+                "Course marquée comme payée"));
     }
 
     @GetMapping("/ratings/user/{userId}")
@@ -409,8 +419,12 @@ public class RideController {
     @PostMapping("/{id}/sos")
     @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Déclencher une alerte SOS pendant une course")
-    public ResponseEntity<ApiResponse<Void>> sosAlert(@PathVariable String id) {
-        rideUseCase.triggerSosAlert(id, SecurityUtils.currentUserId());
+    public ResponseEntity<ApiResponse<Void>> sosAlert(
+            @PathVariable String id,
+            @org.springframework.web.bind.annotation.RequestBody(required = false) SosAlertRequest req) {
+        Double lat = req != null ? req.getLat() : null;
+        Double lng = req != null ? req.getLng() : null;
+        rideUseCase.triggerSosAlert(id, SecurityUtils.currentUserId(), lat, lng);
         return ResponseEntity.ok(ApiResponse.noContent("Alerte SOS envoyée"));
     }
 
