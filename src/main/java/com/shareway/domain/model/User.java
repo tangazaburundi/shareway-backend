@@ -192,6 +192,10 @@ public class User {
     @Builder.Default
     private boolean permanentlyLocked = false;
 
+    @Column(name = "consecutive_refusals")
+    @Builder.Default
+    private int consecutiveRefusals = 0;
+
     @Transient
     private SystemRole systemRole;
 

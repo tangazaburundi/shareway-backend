@@ -18,6 +18,7 @@ import com.shareway.domain.exception.InvalidRideStateException;
 import com.shareway.domain.exception.NotAuthorizedException;
 import com.shareway.domain.exception.RideNotFoundException;
 import com.shareway.domain.exception.UserNotFoundException;
+import com.shareway.domain.model.PaymentRefusal;
 import com.shareway.domain.model.DriverAvailability;
 import com.shareway.domain.model.RideRating;
 import com.shareway.domain.model.RideRequest;
@@ -33,9 +34,11 @@ import com.shareway.domain.repository.UserRepository;
 import com.shareway.domain.repository.PricingConfigRepository;
 import com.shareway.domain.repository.SmsConfigRepository;
 import com.shareway.domain.repository.EmergencyContactRepository;
+import com.shareway.domain.repository.AdminRoleRepository;
 import com.shareway.domain.repository.SystemSettingRepository;
 import com.shareway.domain.repository.UserDocumentRepository;
 import com.shareway.domain.repository.FuelEntryRepository;
+import com.shareway.domain.repository.PaymentRefusalRepository;
 import com.shareway.domain.model.FuelEntry;
 import com.shareway.domain.model.UserDocument;
 import com.shareway.domain.service.DriverMatchingService;
@@ -87,6 +90,8 @@ public class RideUseCase {
     private final PushNotificationPort pushNotificationPort;
     private final SimpMessagingTemplate messaging;
     private final FuelEntryRepository fuelEntryRepository;
+    private final AdminRoleRepository adminRoleRepository;
+    private final PaymentRefusalRepository paymentRefusalRepository;
 
     // In-memory store for ride chat messages (ephemeral, lives until server restart)
     private final ConcurrentHashMap<String, List<Map<String, Object>>> rideMessages = new ConcurrentHashMap<>();
@@ -403,6 +408,7 @@ public class RideUseCase {
 
         ride.accept(driver);
         availability.setOnTrip();
+        resetConsecutiveRefusals(driverId);
 
         rideRequestRepository.save(ride);
         driverAvailabilityRepository.save(availability);
@@ -449,6 +455,7 @@ public class RideUseCase {
 
         ride.reject();
         rideRequestDomainService.releaseDriver(driverId);
+        applyProgressiveRefusalPenalty(driverId);
         rideRequestRepository.save(ride);
 
         messaging.convertAndSendToUser(
@@ -714,6 +721,7 @@ public class RideUseCase {
 
         ride.cancelByDriver(reason);
         rideRequestDomainService.releaseDriver(driverId);
+        resetConsecutiveRefusals(driverId);
         applyCooldownPenalty(driverId);
         rideRequestRepository.save(ride);
 
@@ -787,6 +795,112 @@ public class RideUseCase {
 
         ride.archive();
         rideRequestRepository.save(ride);
+    }
+
+    public RideResponse payRide(String rideId, String userId) {
+        RideRequest ride = rideRequestRepository.findById(rideId)
+                .orElseThrow(() -> new RideNotFoundException("Course introuvable"));
+
+        boolean isDriver = ride.getDriver() != null && ride.getDriver().getId().equals(userId);
+        if (!isDriver) {
+            throw new RuntimeException("Seul le chauffeur peut confirmer la réception du paiement");
+        }
+
+        ride.markAsPaid();
+        rideRequestRepository.save(ride);
+
+        messaging.convertAndSendToUser(
+                ride.getPassenger().getId(),
+                "/queue/ride-update",
+                Map.of(
+                        "rideId", ride.getId(),
+                        "status", ride.getStatus().name(),
+                        "paymentStatus", "CAPTURED",
+                        "message", "Paiement confirmé par le chauffeur"
+                ));
+
+        return toResponse(ride, null);
+    }
+
+    public RideResponse refusePayment(String rideId, String userId) {
+        RideRequest ride = rideRequestRepository.findById(rideId)
+                .orElseThrow(() -> new RideNotFoundException("Course introuvable"));
+
+        boolean isPassenger = ride.getPassenger() != null && ride.getPassenger().getId().equals(userId);
+        if (!isPassenger) {
+            throw new RuntimeException("Seul le passager peut refuser de payer");
+        }
+        if (ride.getStatus() != RideRequest.RideStatus.COMPLETED) {
+            throw new RuntimeException("La course doit être terminée pour refuser le paiement");
+        }
+        if (ride.getPaymentStatus() == RideRequest.PaymentStatus.CAPTURED) {
+            throw new RuntimeException("Le paiement a déjà été confirmé");
+        }
+
+        BigDecimal originalAmount = ride.getFinalPrice() != null ? ride.getFinalPrice() : ride.getEstimatedPrice();
+        if (originalAmount == null) originalAmount = BigDecimal.ZERO;
+        String currency = ride.getCurrency() != null ? ride.getCurrency().name() : "FBU";
+
+        BigDecimal feePercent = getSettingDecimal("ride.unpaid_fee_percent", "10");
+        BigDecimal fineAmount = getSettingDecimal("ride.unpaid_fine_amount", "5000");
+        BigDecimal feeAmount = originalAmount.multiply(feePercent).divide(new BigDecimal("100"));
+        BigDecimal totalDebt = originalAmount.add(feeAmount).add(fineAmount);
+
+        User passenger = ride.getPassenger();
+
+        PaymentRefusal refusal = PaymentRefusal.builder()
+                .rideId(rideId)
+                .userId(passenger.getId())
+                .userFirstName(passenger.getFirstName())
+                .userLastName(passenger.getLastName())
+                .pickupAddress(ride.getPickupAddress())
+                .destinationAddress(ride.getDestinationAddress())
+                .estimatedDistanceKm(ride.getEstimatedDistanceKm())
+                .originalAmount(originalAmount)
+                .feeAmount(feeAmount)
+                .fineAmount(fineAmount)
+                .totalDebt(totalDebt)
+                .currency(currency)
+                .resolved(false)
+                .build();
+        paymentRefusalRepository.save(refusal);
+
+        passenger.block("Refus de paiement — dette: " + totalDebt + " " + currency, "SYSTEM");
+        userRepository.save(passenger);
+
+        List<String> adminIds = adminRoleRepository.findAllUserIds();
+        for (String adminId : adminIds) {
+            notificationPort.notifyWithLink(
+                    adminId,
+                    "PAYMENT",
+                    "Refus de paiement",
+                    passenger.getFirstName() + " " + passenger.getLastName()
+                            + " a refusé de payer " + originalAmount + " " + currency
+                            + " pour la course " + rideId
+                            + ". Dette totale (avec frais + amende): " + totalDebt + " " + currency,
+                    "/ride/tracking/" + rideId
+            );
+        }
+
+        messaging.convertAndSendToUser(
+                userId,
+                "/queue/ride-update",
+                Map.of(
+                        "rideId", ride.getId(),
+                        "status", ride.getStatus().name(),
+                        "paymentStatus", "REFUSED",
+                        "totalDebt", totalDebt.toPlainString(),
+                        "currency", currency,
+                        "message", "Paiement refusé. Vous êtes temporairement bloqué jusqu'au règlement de " + totalDebt + " " + currency
+                ));
+
+        return toResponse(ride, null);
+    }
+
+    private BigDecimal getSettingDecimal(String key, String defaultValue) {
+        return systemSettingRepository.findByKey(key)
+                .map(s -> new BigDecimal(s.getValue()))
+                .orElse(new BigDecimal(defaultValue));
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -1187,42 +1301,69 @@ public class RideUseCase {
     // ════════════════════════════════════════════════════════════════
 
     @Transactional
-    public void triggerSosAlert(String rideId, String userId) {
+    public void triggerSosAlert(String rideId, String userId, Double currentLat, Double currentLng) {
         RideRequest ride = rideRequestRepository.findById(rideId)
                 .orElseThrow(() -> new RideNotFoundException("Course non trouvée: " + rideId));
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("Utilisateur non trouvé: " + userId));
 
-        // Build SOS alert data — admin only
+        String driverId = ride.getDriver() != null ? ride.getDriver().getId() : null;
+
+        // Use real-time GPS from frontend, fallback to pickup coords
+        double sosLat = (currentLat != null) ? currentLat : (ride.getPickupLat() != null ? ride.getPickupLat().doubleValue() : 0.0);
+        double sosLng = (currentLng != null) ? currentLng : (ride.getPickupLng() != null ? ride.getPickupLng().doubleValue() : 0.0);
+
+        // Build SOS alert data
         java.util.Map<String, Object> sosData = new java.util.HashMap<>();
         sosData.put("type", "SOS_ALERT");
         sosData.put("rideId", rideId);
         sosData.put("userId", userId);
         sosData.put("userName", user.getFirstName() + " " + user.getLastName());
         sosData.put("userPhone", user.getPhone());
+        sosData.put("currentLat", sosLat);
+        sosData.put("currentLng", sosLng);
         sosData.put("pickupLat", ride.getPickupLat());
         sosData.put("pickupLng", ride.getPickupLng());
         sosData.put("destinationLat", ride.getDestinationLat());
         sosData.put("destinationLng", ride.getDestinationLng());
-        sosData.put("triggeredBy", ride.getDriver() != null && ride.getDriver().getId().equals(userId) ? "DRIVER" : "PASSENGER");
+        sosData.put("triggeredBy", driverId != null && driverId.equals(userId) ? "DRIVER" : "PASSENGER");
         sosData.put("timestamp", LocalDateTime.now().toString());
 
-        // Notify admin via WebSocket
+        // Find all admin user IDs, exclude the driver
+        List<String> adminUserIds = adminRoleRepository.findAllUserIds();
+        List<String> targetAdminIds = adminUserIds.stream()
+                .filter(id -> driverId == null || !id.equals(driverId))
+                .toList();
+
+        // Send WS alert to each admin individually (not broadcast)
+        for (String adminId : targetAdminIds) {
+            messaging.convertAndSendToUser(adminId, "/queue/admin/sos", sosData);
+        }
+
+        // Also keep the topic for admin layout badge
         messaging.convertAndSend("/topic/admin/sos", sosData);
 
-        // In-app notification to admin
-        notificationPort.notifyWithLink(
-                userId, "SYSTEM", "SOS URGENT",
-                "Alerte SOS declenchee par " + user.getFirstName() + " " + user.getLastName() + " (Course: " + rideId + ")",
-                "/admin/audit");
+        // In-app notification to each admin (not the driver)
+        String notifBody = "Alerte SOS declenchee par " + user.getFirstName() + " " + user.getLastName()
+                + " — Position GPS: " + sosLat + ", " + sosLng
+                + " (Course: " + rideId + ")";
+        for (String adminId : targetAdminIds) {
+            try {
+                notificationPort.notifyWithLink(
+                        adminId, "SOS", "SOS URGENT", notifBody,
+                        "/ride/tracking/" + rideId);
+            } catch (Exception e) {
+                log.error("Failed to send SOS notification to admin {}: {}", adminId, e.getMessage());
+            }
+        }
 
         // SMS aux contacts d'urgence
         List<EmergencyContact> contacts = emergencyContactRepository.findByUserIdAndActiveTrueOrderByCreatedAtDesc(userId);
         if (!contacts.isEmpty() && smsPort.isAvailable()) {
             String smsBody = "ALERTE SOS — " + user.getFirstName() + " " + user.getLastName()
                     + " a declenche une alerte d'urgence."
-                    + " Position: " + ride.getPickupLat() + "," + ride.getPickupLng()
+                    + " Position actuelle: " + sosLat + "," + sosLng
                     + ". Course: " + rideId;
             for (EmergencyContact contact : contacts) {
                 try {
@@ -1234,9 +1375,9 @@ public class RideUseCase {
             }
         }
 
-        log.warn("SOS ALERT — ride={}, user={}, phone={}, position=({},{})",
+        log.warn("SOS ALERT — ride={}, user={}, phone={}, currentPosition=({},{}), admins notified={}",
                 rideId, userId, user.getPhone(),
-                ride.getPickupLat(), ride.getPickupLng());
+                sosLat, sosLng, targetAdminIds.size());
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -1442,6 +1583,7 @@ public class RideUseCase {
         }
 
         rideRequestDomainService.releaseDriver(driverId);
+        resetConsecutiveRefusals(driverId);
         applyCooldownPenalty(driverId);
         ride.setDriver(null);
         ride.render();
@@ -1554,6 +1696,8 @@ public class RideUseCase {
             map.put("remainingSeconds", 0);
         }
         map.put("cooldownMinutes", getDriverCooldownMinutes());
+        map.put("consecutiveRefusals", driver != null ? driver.getConsecutiveRefusals() : 0);
+        map.put("nextRefusalPenalty", getRefusalPenaltyForCount((driver != null ? driver.getConsecutiveRefusals() : 0) + 1));
         return map;
     }
 
@@ -1597,6 +1741,78 @@ public class RideUseCase {
         });
     }
 
+    // ════════════════════════════════════════════════════════════════
+    // PÉNALITÉ PROGRESSIVE — Refus successifs
+    // ════════════════════════════════════════════════════════════════
+
+    private void applyProgressiveRefusalPenalty(String driverId) {
+        userRepository.findByIdAndDeletedAtIsNull(driverId).ifPresent(driver -> {
+            int count = driver.getConsecutiveRefusals() + 1;
+            driver.setConsecutiveRefusals(count);
+
+            if (count <= 1) {
+                // 1er refus pur = toléré, pas de blocage
+                log.info("Driver {} 1st refusal — tolerated, no block", driverId);
+            } else {
+                // 2e refus consécutif et plus = pénalité progressive
+                int minutes = getRefusalPenaltyForCount(count - 1);
+                driver.setBlockedUntil(LocalDateTime.now().plusMinutes(minutes));
+                log.info("Driver {} refusal #{} — blocked for {} min", driverId, count, minutes);
+            }
+
+            userRepository.save(driver);
+        });
+    }
+
+    public void resetConsecutiveRefusals(String driverId) {
+        userRepository.findByIdAndDeletedAtIsNull(driverId).ifPresent(driver -> {
+            if (driver.getConsecutiveRefusals() > 0) {
+                driver.setConsecutiveRefusals(0);
+                userRepository.save(driver);
+                log.info("Driver {} refusals reset to 0 (ride accepted)", driverId);
+            }
+        });
+    }
+
+    private int getRefusalPenaltyForCount(int count) {
+        String key = switch (count) {
+            case 1 -> "ride.refusal_penalty_t1";
+            case 2 -> "ride.refusal_penalty_t2";
+            case 3 -> "ride.refusal_penalty_t3";
+            case 4 -> "ride.refusal_penalty_t4";
+            case 5 -> "ride.refusal_penalty_t5";
+            default -> "ride.refusal_penalty_t6plus";
+        };
+        int defaultVal = switch (count) {
+            case 1 -> 5;
+            case 2 -> 10;
+            case 3 -> 60;
+            case 4 -> 120;
+            case 5 -> 180;
+            default -> 240;
+        };
+        return systemSettingRepository.findByKey(key)
+                .map(s -> { try { return Integer.parseInt(s.getValue()); } catch (Exception e) { return defaultVal; } })
+                .orElse(defaultVal);
+    }
+
+    public int getConsecutiveRefusals(String driverId) {
+        return userRepository.findByIdAndDeletedAtIsNull(driverId)
+                .map(User::getConsecutiveRefusals)
+                .orElse(0);
+    }
+
+    public java.util.Map<String, Object> getRefusalPenaltyConfig() {
+        var map = new java.util.LinkedHashMap<String, Object>();
+        map.put("t1", getRefusalPenaltyForCount(1));
+        map.put("t2", getRefusalPenaltyForCount(2));
+        map.put("t3", getRefusalPenaltyForCount(3));
+        map.put("t4", getRefusalPenaltyForCount(4));
+        map.put("t5", getRefusalPenaltyForCount(5));
+        map.put("t6plus", getRefusalPenaltyForCount(6));
+        return map;
+    }
+
     public Map<String, Object> getSearchTimeoutConfig() {
         int timeoutMinutes = getSearchTimeoutMinutes();
         int radiusKm = getRebroadcastRadiusKm();
@@ -1613,6 +1829,7 @@ public class RideUseCase {
         map.put("defaultMessageSound", getSettingString("ride.default_message_sound", "ping"));
         map.put("defaultSosSound", getSettingString("ride.default_sos_sound", "siren"));
         map.put("userSoundConfigEnabled", getSettingString("ride.user_sound_config_enabled", "true"));
+        map.put("refusalPenalty", getRefusalPenaltyConfig());
         return map;
     }
 
