@@ -18,6 +18,7 @@ import com.shareway.domain.exception.InvalidRideStateException;
 import com.shareway.domain.exception.NotAuthorizedException;
 import com.shareway.domain.exception.RideNotFoundException;
 import com.shareway.domain.exception.UserNotFoundException;
+import com.shareway.domain.model.PaymentRefusal;
 import com.shareway.domain.model.DriverAvailability;
 import com.shareway.domain.model.RideRating;
 import com.shareway.domain.model.RideRequest;
@@ -37,6 +38,7 @@ import com.shareway.domain.repository.AdminRoleRepository;
 import com.shareway.domain.repository.SystemSettingRepository;
 import com.shareway.domain.repository.UserDocumentRepository;
 import com.shareway.domain.repository.FuelEntryRepository;
+import com.shareway.domain.repository.PaymentRefusalRepository;
 import com.shareway.domain.model.FuelEntry;
 import com.shareway.domain.model.UserDocument;
 import com.shareway.domain.service.DriverMatchingService;
@@ -89,6 +91,7 @@ public class RideUseCase {
     private final SimpMessagingTemplate messaging;
     private final FuelEntryRepository fuelEntryRepository;
     private final AdminRoleRepository adminRoleRepository;
+    private final PaymentRefusalRepository paymentRefusalRepository;
 
     // In-memory store for ride chat messages (ephemeral, lives until server restart)
     private final ConcurrentHashMap<String, List<Map<String, Object>>> rideMessages = new ConcurrentHashMap<>();
@@ -805,7 +808,99 @@ public class RideUseCase {
 
         ride.markAsPaid();
         rideRequestRepository.save(ride);
+
+        messaging.convertAndSendToUser(
+                ride.getPassenger().getId(),
+                "/queue/ride-update",
+                Map.of(
+                        "rideId", ride.getId(),
+                        "status", ride.getStatus().name(),
+                        "paymentStatus", "CAPTURED",
+                        "message", "Paiement confirmé par le chauffeur"
+                ));
+
         return toResponse(ride, null);
+    }
+
+    public RideResponse refusePayment(String rideId, String userId) {
+        RideRequest ride = rideRequestRepository.findById(rideId)
+                .orElseThrow(() -> new RideNotFoundException("Course introuvable"));
+
+        boolean isPassenger = ride.getPassenger() != null && ride.getPassenger().getId().equals(userId);
+        if (!isPassenger) {
+            throw new RuntimeException("Seul le passager peut refuser de payer");
+        }
+        if (ride.getStatus() != RideRequest.RideStatus.COMPLETED) {
+            throw new RuntimeException("La course doit être terminée pour refuser le paiement");
+        }
+        if (ride.getPaymentStatus() == RideRequest.PaymentStatus.CAPTURED) {
+            throw new RuntimeException("Le paiement a déjà été confirmé");
+        }
+
+        BigDecimal originalAmount = ride.getFinalPrice() != null ? ride.getFinalPrice() : ride.getEstimatedPrice();
+        if (originalAmount == null) originalAmount = BigDecimal.ZERO;
+        String currency = ride.getCurrency() != null ? ride.getCurrency().name() : "FBU";
+
+        BigDecimal feePercent = getSettingDecimal("ride.unpaid_fee_percent", "10");
+        BigDecimal fineAmount = getSettingDecimal("ride.unpaid_fine_amount", "5000");
+        BigDecimal feeAmount = originalAmount.multiply(feePercent).divide(new BigDecimal("100"));
+        BigDecimal totalDebt = originalAmount.add(feeAmount).add(fineAmount);
+
+        User passenger = ride.getPassenger();
+
+        PaymentRefusal refusal = PaymentRefusal.builder()
+                .rideId(rideId)
+                .userId(passenger.getId())
+                .userFirstName(passenger.getFirstName())
+                .userLastName(passenger.getLastName())
+                .pickupAddress(ride.getPickupAddress())
+                .destinationAddress(ride.getDestinationAddress())
+                .estimatedDistanceKm(ride.getEstimatedDistanceKm())
+                .originalAmount(originalAmount)
+                .feeAmount(feeAmount)
+                .fineAmount(fineAmount)
+                .totalDebt(totalDebt)
+                .currency(currency)
+                .resolved(false)
+                .build();
+        paymentRefusalRepository.save(refusal);
+
+        passenger.block("Refus de paiement — dette: " + totalDebt + " " + currency, "SYSTEM");
+        userRepository.save(passenger);
+
+        List<String> adminIds = adminRoleRepository.findAllUserIds();
+        for (String adminId : adminIds) {
+            notificationPort.notifyWithLink(
+                    adminId,
+                    "PAYMENT",
+                    "Refus de paiement",
+                    passenger.getFirstName() + " " + passenger.getLastName()
+                            + " a refusé de payer " + originalAmount + " " + currency
+                            + " pour la course " + rideId
+                            + ". Dette totale (avec frais + amende): " + totalDebt + " " + currency,
+                    "/ride/tracking/" + rideId
+            );
+        }
+
+        messaging.convertAndSendToUser(
+                userId,
+                "/queue/ride-update",
+                Map.of(
+                        "rideId", ride.getId(),
+                        "status", ride.getStatus().name(),
+                        "paymentStatus", "REFUSED",
+                        "totalDebt", totalDebt.toPlainString(),
+                        "currency", currency,
+                        "message", "Paiement refusé. Vous êtes temporairement bloqué jusqu'au règlement de " + totalDebt + " " + currency
+                ));
+
+        return toResponse(ride, null);
+    }
+
+    private BigDecimal getSettingDecimal(String key, String defaultValue) {
+        return systemSettingRepository.findByKey(key)
+                .map(s -> new BigDecimal(s.getValue()))
+                .orElse(new BigDecimal(defaultValue));
     }
 
     // ════════════════════════════════════════════════════════════════

@@ -160,6 +160,15 @@ public class RideController {
                 "Course marquée comme payée"));
     }
 
+    @PostMapping("/{id}/refuse-payment")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Refuser de payer une course")
+    public ResponseEntity<ApiResponse<RideResponse>> refusePayment(@PathVariable String id) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                rideUseCase.refusePayment(id, SecurityUtils.currentUserId()),
+                "Paiement refusé"));
+    }
+
     @GetMapping("/ratings/user/{userId}")
     @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Avis taxi reçus par un utilisateur")
