@@ -13,4 +13,5 @@ public interface PaymentRefusalRepository extends JpaRepository<PaymentRefusal, 
     List<PaymentRefusal> findByResolvedFalseOrderByCreatedAtDesc();
     Optional<PaymentRefusal> findByRideIdAndResolvedFalse(String rideId);
     List<PaymentRefusal> findAllByOrderByCreatedAtDesc();
+    long countByUserId(String userId);
 }
