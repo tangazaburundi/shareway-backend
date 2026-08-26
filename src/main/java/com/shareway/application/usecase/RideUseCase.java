@@ -39,6 +39,8 @@ import com.shareway.domain.repository.SystemSettingRepository;
 import com.shareway.domain.repository.UserDocumentRepository;
 import com.shareway.domain.repository.FuelEntryRepository;
 import com.shareway.domain.repository.PaymentRefusalRepository;
+import com.shareway.domain.repository.RideRejectionRepository;
+import com.shareway.domain.model.RideRejection;
 import com.shareway.domain.model.FuelEntry;
 import com.shareway.domain.model.UserDocument;
 import com.shareway.domain.service.DriverMatchingService;
@@ -92,6 +94,7 @@ public class RideUseCase {
     private final FuelEntryRepository fuelEntryRepository;
     private final AdminRoleRepository adminRoleRepository;
     private final PaymentRefusalRepository paymentRefusalRepository;
+    private final RideRejectionRepository rideRejectionRepository;
 
     // In-memory store for ride chat messages (ephemeral, lives until server restart)
     private final ConcurrentHashMap<String, List<Map<String, Object>>> rideMessages = new ConcurrentHashMap<>();
@@ -453,6 +456,14 @@ public class RideUseCase {
 
         String rejectionReason = (reason != null && !reason.isBlank()) ? reason : "Aucun motif précisé";
 
+        RideRejection rejection = RideRejection.builder()
+                .rideId(rideId)
+                .driverId(driverId)
+                .passengerId(ride.getPassenger() != null ? ride.getPassenger().getId() : null)
+                .reason(rejectionReason)
+                .build();
+        rideRejectionRepository.save(rejection);
+
         ride.reject();
         rideRequestDomainService.releaseDriver(driverId);
         applyProgressiveRefusalPenalty(driverId);
@@ -755,9 +766,37 @@ public class RideUseCase {
 
     @Transactional(readOnly = true)
     public List<RideResponse> getDriverHistory(String driverId) {
-        return rideRequestRepository.findByDriverIdOrderByCreatedAtDesc(driverId).stream()
+        List<RideResponse> rides = rideRequestRepository.findByDriverIdOrderByCreatedAtDesc(driverId).stream()
                 .map(r -> toResponse(r, null))
                 .toList();
+
+        List<RideResponse> rejections = rideRejectionRepository.findByDriverIdOrderByCreatedAtDesc(driverId).stream()
+                .map(rejection -> {
+                    RideRequest ride = rideRequestRepository.findById(rejection.getRideId()).orElse(null);
+                    RideResponse resp = ride != null ? toResponse(ride, null) : new RideResponse();
+                    resp.setRejectedByDriver(true);
+                    resp.setRejectionReason(rejection.getReason());
+                    resp.setRejectedAt(rejection.getCreatedAt());
+                    if (ride != null) {
+                        resp.setId(ride.getId());
+                    } else {
+                        resp.setId(rejection.getRideId());
+                    }
+                    return resp;
+                })
+                .toList();
+
+        List<RideResponse> merged = new java.util.ArrayList<>(rides);
+        merged.addAll(rejections);
+        merged.sort((a, b) -> {
+            var ta = a.getCreatedAt() != null ? a.getCreatedAt() : a.getRejectedAt();
+            var tb = b.getCreatedAt() != null ? b.getCreatedAt() : b.getRejectedAt();
+            if (ta == null && tb == null) return 0;
+            if (ta == null) return 1;
+            if (tb == null) return -1;
+            return tb.compareTo(ta);
+        });
+        return merged;
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -817,6 +856,90 @@ public class RideUseCase {
                         "status", ride.getStatus().name(),
                         "paymentStatus", "CAPTURED",
                         "message", "Paiement confirmé par le chauffeur"
+                ));
+
+        return toResponse(ride, null);
+    }
+
+    public RideResponse confirmPaymentRefused(String rideId, String userId) {
+        RideRequest ride = rideRequestRepository.findById(rideId)
+                .orElseThrow(() -> new RideNotFoundException("Course introuvable"));
+
+        boolean isDriver = ride.getDriver() != null && ride.getDriver().getId().equals(userId);
+        if (!isDriver) {
+            throw new RuntimeException("Seul le chauffeur peut confirmer le refus de paiement");
+        }
+        if (ride.getStatus() != RideRequest.RideStatus.COMPLETED) {
+            throw new RuntimeException("La course doit être terminée pour confirmer le refus");
+        }
+        if (ride.getPaymentStatus() == RideRequest.PaymentStatus.CAPTURED) {
+            throw new RuntimeException("Le paiement a déjà été confirmé");
+        }
+        if (ride.getPaymentStatus() == RideRequest.PaymentStatus.REFUSED) {
+            throw new RuntimeException("Le refus de paiement a déjà été confirmé");
+        }
+
+        ride.markAsRefused();
+        rideRequestRepository.save(ride);
+
+        BigDecimal originalAmount = ride.getFinalPrice() != null ? ride.getFinalPrice() : ride.getEstimatedPrice();
+        if (originalAmount == null) originalAmount = BigDecimal.ZERO;
+        String currency = ride.getCurrency() != null ? ride.getCurrency().name() : "FBU";
+
+        BigDecimal feePercent = getSettingDecimal("ride.unpaid_fee_percent", "10");
+        BigDecimal fineAmount = getSettingDecimal("ride.unpaid_fine_amount", "5000");
+        BigDecimal feeAmount = originalAmount.multiply(feePercent).divide(new BigDecimal("100"));
+        BigDecimal totalDebt = originalAmount.add(feeAmount).add(fineAmount);
+
+        User passenger = ride.getPassenger();
+
+        PaymentRefusal refusal = PaymentRefusal.builder()
+                .rideId(rideId)
+                .userId(passenger.getId())
+                .userFirstName(passenger.getFirstName())
+                .userLastName(passenger.getLastName())
+                .pickupAddress(ride.getPickupAddress())
+                .destinationAddress(ride.getDestinationAddress())
+                .estimatedDistanceKm(ride.getEstimatedDistanceKm())
+                .originalAmount(originalAmount)
+                .feeAmount(feeAmount)
+                .fineAmount(fineAmount)
+                .totalDebt(totalDebt)
+                .currency(currency)
+                .resolved(false)
+                .build();
+        paymentRefusalRepository.save(refusal);
+
+        passenger.block("Refus de paiement — dette: " + totalDebt + " " + currency, "SYSTEM");
+        passenger.addDebt(totalDebt, currency);
+        userRepository.save(passenger);
+
+        List<String> adminIds = adminRoleRepository.findAllUserIds();
+        for (String adminId : adminIds) {
+            notificationPort.notifyWithLink(
+                    adminId,
+                    "PAYMENT",
+                    "Refus de paiement confirmé par le chauffeur",
+                    "Le chauffeur " + ride.getDriver().getFirstName() + " " + ride.getDriver().getLastName()
+                            + " a confirmé que " + passenger.getFirstName() + " " + passenger.getLastName()
+                            + " a refusé de payer " + originalAmount + " " + currency
+                            + " pour la course " + rideId
+                            + ". Dette totale (avec frais + amende): " + totalDebt + " " + currency
+                            + ". Utilisateur blacklisté.",
+                    "/ride/tracking/" + rideId
+            );
+        }
+
+        messaging.convertAndSendToUser(
+                passenger.getId(),
+                "/queue/ride-update",
+                Map.of(
+                        "rideId", ride.getId(),
+                        "status", ride.getStatus().name(),
+                        "paymentStatus", "REFUSED",
+                        "totalDebt", totalDebt.toPlainString(),
+                        "currency", currency,
+                        "message", "Le chauffeur a confirmé le refus de paiement. Vous êtes blacklisté jusqu'au règlement de " + totalDebt + " " + currency
                 ));
 
         return toResponse(ride, null);
@@ -1697,7 +1820,9 @@ public class RideUseCase {
         }
         map.put("cooldownMinutes", getDriverCooldownMinutes());
         map.put("consecutiveRefusals", driver != null ? driver.getConsecutiveRefusals() : 0);
-        map.put("nextRefusalPenalty", getRefusalPenaltyForCount((driver != null ? driver.getConsecutiveRefusals() : 0) + 1));
+        int refCount = driver != null ? driver.getConsecutiveRefusals() : 0;
+        map.put("currentPenaltyMinutes", refCount > 1 ? getRefusalPenaltyForCount(refCount - 1) : 0);
+        map.put("nextRefusalPenalty", getRefusalPenaltyForCount(refCount));
         return map;
     }
 
