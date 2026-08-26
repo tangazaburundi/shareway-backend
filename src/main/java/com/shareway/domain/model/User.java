@@ -196,6 +196,13 @@ public class User {
     @Builder.Default
     private int consecutiveRefusals = 0;
 
+    @Column(name = "total_debt", precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal totalDebt = BigDecimal.ZERO;
+
+    @Column(name = "debt_currency")
+    private String debtCurrency;
+
     @Transient
     private SystemRole systemRole;
 
@@ -282,6 +289,16 @@ public class User {
         this.blockedAt = null;
         this.blockedById = null;
         this.active = true;
+    }
+
+    public void addDebt(java.math.BigDecimal amount, String currency) {
+        this.totalDebt = this.totalDebt.add(amount);
+        this.debtCurrency = currency;
+    }
+
+    public void clearDebt() {
+        this.totalDebt = BigDecimal.ZERO;
+        this.debtCurrency = null;
     }
 
     public void verifyEmail() {

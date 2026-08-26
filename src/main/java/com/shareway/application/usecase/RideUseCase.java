@@ -39,6 +39,8 @@ import com.shareway.domain.repository.SystemSettingRepository;
 import com.shareway.domain.repository.UserDocumentRepository;
 import com.shareway.domain.repository.FuelEntryRepository;
 import com.shareway.domain.repository.PaymentRefusalRepository;
+import com.shareway.domain.repository.RideRejectionRepository;
+import com.shareway.domain.model.RideRejection;
 import com.shareway.domain.model.FuelEntry;
 import com.shareway.domain.model.UserDocument;
 import com.shareway.domain.service.DriverMatchingService;
@@ -92,6 +94,7 @@ public class RideUseCase {
     private final FuelEntryRepository fuelEntryRepository;
     private final AdminRoleRepository adminRoleRepository;
     private final PaymentRefusalRepository paymentRefusalRepository;
+    private final RideRejectionRepository rideRejectionRepository;
 
     // In-memory store for ride chat messages (ephemeral, lives until server restart)
     private final ConcurrentHashMap<String, List<Map<String, Object>>> rideMessages = new ConcurrentHashMap<>();
@@ -144,6 +147,11 @@ public class RideUseCase {
 
         // Notifier les chauffeurs
         if (req.getDriverId() != null && !req.getDriverId().isBlank()) {
+            // Empêcher un passager de réserver avec lui-même
+            if (req.getDriverId().equals(passengerId)) {
+                throw new InvalidOperationException("Vous ne pouvez pas réserver une course avec vous-même");
+            }
+
             // Cibler un conducteur spécifique
             User targetedUser = userRepository.findByIdAndDeletedAtIsNull(req.getDriverId())
                     .orElseThrow(() -> new UserNotFoundException("Conducteur introuvable"));
@@ -163,18 +171,9 @@ public class RideUseCase {
             messaging.convertAndSendToUser(
                     targetedUser.getId(),
                     "/queue/ride-request",
-                    Map.of(
-                            "rideId", ride.getId(),
-                            "passengerName", passenger.getFullName(),
-                            "pickupAddress", req.getPickupAddress() != null ? req.getPickupAddress() : "Position actuelle",
-                            "destinationAddress", req.getDestinationAddress() != null ? req.getDestinationAddress() : "Destination",
-                            "estimatedPrice", pricing.getEstimatedPrice(),
-                            "distance", distance,
-                            "duration", duration,
-                            "currency", currency,
-                            "surgeMultiplier", pricing.getSurgeMultiplier(),
-                            "passengerCount", req.getPassengerCount()
-                    ));
+                    buildRideRequestMessage(ride, passenger,
+                            req.getPickupAddress(), req.getDestinationAddress(),
+                            pricing.getEstimatedPrice(), distance, duration, currency, req.getPassengerCount()));
 
             notificationPort.notifyWithLink(
                     targetedUser.getId(), "BOOKING",
@@ -186,6 +185,11 @@ public class RideUseCase {
             // Sélectionner automatiquement le chauffeur le plus proche
             List<DriverAvailability> nearby = driverMatchingService.findNearbyDrivers(
                     req.getPickupLat().doubleValue(), req.getPickupLng().doubleValue(), getRebroadcastRadiusKm());
+
+            // Exclure le passager lui-même de la liste des chauffeurs
+            nearby = nearby.stream()
+                    .filter(da -> !da.getUser().getId().equals(passengerId))
+                    .toList();
 
             if (nearby.isEmpty()) {
                 throw new DriverNotAvailableException("Aucun chauffeur disponible à proximité");
@@ -203,18 +207,9 @@ public class RideUseCase {
             messaging.convertAndSendToUser(
                     nearestUser.getId(),
                     "/queue/ride-request",
-                    Map.of(
-                            "rideId", ride.getId(),
-                            "passengerName", passenger.getFullName(),
-                            "pickupAddress", req.getPickupAddress() != null ? req.getPickupAddress() : "Position actuelle",
-                            "destinationAddress", req.getDestinationAddress() != null ? req.getDestinationAddress() : "Destination",
-                            "estimatedPrice", pricing.getEstimatedPrice(),
-                            "distance", distance,
-                            "duration", duration,
-                            "currency", currency,
-                            "surgeMultiplier", pricing.getSurgeMultiplier(),
-                            "passengerCount", req.getPassengerCount()
-                    ));
+                    buildRideRequestMessage(ride, passenger,
+                            req.getPickupAddress(), req.getDestinationAddress(),
+                            pricing.getEstimatedPrice(), distance, duration, currency, req.getPassengerCount()));
 
             notificationPort.notifyWithLink(
                     nearestUser.getId(), "BOOKING",
@@ -453,9 +448,26 @@ public class RideUseCase {
 
         String rejectionReason = (reason != null && !reason.isBlank()) ? reason : "Aucun motif précisé";
 
+        RideRejection rejection = RideRejection.builder()
+                .rideId(rideId)
+                .driverId(driverId)
+                .passengerId(ride.getPassenger() != null ? ride.getPassenger().getId() : null)
+                .reason(rejectionReason)
+                .build();
+        rideRejectionRepository.save(rejection);
+
         ride.reject();
         rideRequestDomainService.releaseDriver(driverId);
-        applyProgressiveRefusalPenalty(driverId);
+
+        // Pas de pénalité si le passager a déjà refusé de payer
+        long passengerRefusals = paymentRefusalRepository.countByUserId(ride.getPassenger().getId());
+        if (passengerRefusals == 0) {
+            applyProgressiveRefusalPenalty(driverId);
+        } else {
+            log.info("Driver {} refusal exempted — passenger {} has {} payment refusal(s)",
+                    driverId, ride.getPassenger().getId(), passengerRefusals);
+        }
+
         rideRequestRepository.save(ride);
 
         messaging.convertAndSendToUser(
@@ -487,9 +499,10 @@ public class RideUseCase {
         List<DriverAvailability> nearby = driverMatchingService.findNearbyDrivers(
                 ride.getPickupLat().doubleValue(), ride.getPickupLng().doubleValue(), getRebroadcastRadiusKm());
 
-        // Exclure le chauffeur qui a refusé
+        // Exclure le chauffeur qui a refusé ET le passager lui-même
         List<DriverAvailability> candidates = nearby.stream()
                 .filter(d -> !d.getUser().getId().equals(driverId))
+                .filter(d -> !d.getUser().getId().equals(ride.getPassenger().getId()))
                 .toList();
 
         if (candidates.isEmpty()) {
@@ -525,17 +538,12 @@ public class RideUseCase {
                 messaging.convertAndSendToUser(
                         candidate.getUser().getId(),
                         "/queue/ride-request",
-                        Map.of(
-                                "rideId", ride.getId(),
-                                "passengerName", ride.getPassenger().getFullName(),
-                                "pickupAddress", ride.getPickupAddress() != null ? ride.getPickupAddress() : "Position actuelle",
-                                "destinationAddress", ride.getDestinationAddress() != null ? ride.getDestinationAddress() : "Destination",
-                                "estimatedPrice", ride.getEstimatedPrice(),
-                                "distance", ride.getEstimatedDistanceKm(),
-                                "duration", ride.getEstimatedDurationMin(),
-                                "currency", ride.getCurrency().name(),
-                                "passengerCount", ride.getPassengerCount()
-                        ));
+                        buildRideRequestMessage(ride, ride.getPassenger(),
+                                ride.getPickupAddress(), ride.getDestinationAddress(),
+                                ride.getEstimatedPrice(),
+                                ride.getEstimatedDistanceKm(),
+                                ride.getEstimatedDurationMin() != null ? ride.getEstimatedDurationMin() : 0,
+                                ride.getCurrency().name(), ride.getPassengerCount()));
 
                 notificationPort.notifyWithLink(
                         candidate.getUser().getId(), "BOOKING",
@@ -587,6 +595,7 @@ public class RideUseCase {
 
         List<DriverAvailability> candidates = nearby.stream()
                 .filter(d -> !d.getUser().getId().equals(driverId) && d.isAvailable())
+                .filter(d -> !d.getUser().getId().equals(ride.getPassenger().getId()))
                 .toList();
 
         if (candidates.isEmpty()) {
@@ -620,17 +629,12 @@ public class RideUseCase {
                 messaging.convertAndSendToUser(
                         candidate.getUser().getId(),
                         "/queue/ride-request",
-                        Map.of(
-                                "rideId", ride.getId(),
-                                "passengerName", ride.getPassenger().getFullName(),
-                                "pickupAddress", ride.getPickupAddress() != null ? ride.getPickupAddress() : "Position actuelle",
-                                "destinationAddress", ride.getDestinationAddress() != null ? ride.getDestinationAddress() : "Destination",
-                                "estimatedPrice", ride.getEstimatedPrice(),
-                                "distance", ride.getEstimatedDistanceKm(),
-                                "duration", ride.getEstimatedDurationMin(),
-                                "currency", ride.getCurrency().name(),
-                                "passengerCount", ride.getPassengerCount()
-                        ));
+                        buildRideRequestMessage(ride, ride.getPassenger(),
+                                ride.getPickupAddress(), ride.getDestinationAddress(),
+                                ride.getEstimatedPrice(),
+                                ride.getEstimatedDistanceKm(),
+                                ride.getEstimatedDurationMin() != null ? ride.getEstimatedDurationMin() : 0,
+                                ride.getCurrency().name(), ride.getPassengerCount()));
 
                 notificationPort.notifyWithLink(
                         candidate.getUser().getId(), "BOOKING",
@@ -755,9 +759,37 @@ public class RideUseCase {
 
     @Transactional(readOnly = true)
     public List<RideResponse> getDriverHistory(String driverId) {
-        return rideRequestRepository.findByDriverIdOrderByCreatedAtDesc(driverId).stream()
+        List<RideResponse> rides = rideRequestRepository.findByDriverIdOrderByCreatedAtDesc(driverId).stream()
                 .map(r -> toResponse(r, null))
                 .toList();
+
+        List<RideResponse> rejections = rideRejectionRepository.findByDriverIdOrderByCreatedAtDesc(driverId).stream()
+                .map(rejection -> {
+                    RideRequest ride = rideRequestRepository.findById(rejection.getRideId()).orElse(null);
+                    RideResponse resp = ride != null ? toResponse(ride, null) : new RideResponse();
+                    resp.setRejectedByDriver(true);
+                    resp.setRejectionReason(rejection.getReason());
+                    resp.setRejectedAt(rejection.getCreatedAt());
+                    if (ride != null) {
+                        resp.setId(ride.getId());
+                    } else {
+                        resp.setId(rejection.getRideId());
+                    }
+                    return resp;
+                })
+                .toList();
+
+        List<RideResponse> merged = new java.util.ArrayList<>(rides);
+        merged.addAll(rejections);
+        merged.sort((a, b) -> {
+            var ta = a.getCreatedAt() != null ? a.getCreatedAt() : a.getRejectedAt();
+            var tb = b.getCreatedAt() != null ? b.getCreatedAt() : b.getRejectedAt();
+            if (ta == null && tb == null) return 0;
+            if (ta == null) return 1;
+            if (tb == null) return -1;
+            return tb.compareTo(ta);
+        });
+        return merged;
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -822,6 +854,97 @@ public class RideUseCase {
         return toResponse(ride, null);
     }
 
+    public RideResponse confirmPaymentRefused(String rideId, String userId) {
+        RideRequest ride = rideRequestRepository.findById(rideId)
+                .orElseThrow(() -> new RideNotFoundException("Course introuvable"));
+
+        boolean isDriver = ride.getDriver() != null && ride.getDriver().getId().equals(userId);
+        if (!isDriver) {
+            throw new RuntimeException("Seul le chauffeur peut confirmer le refus de paiement");
+        }
+        if (ride.getStatus() != RideRequest.RideStatus.COMPLETED) {
+            throw new RuntimeException("La course doit être terminée pour confirmer le refus");
+        }
+        if (ride.getPaymentStatus() == RideRequest.PaymentStatus.CAPTURED) {
+            throw new RuntimeException("Le paiement a déjà été confirmé");
+        }
+        if (ride.getPaymentStatus() == RideRequest.PaymentStatus.REFUSED) {
+            throw new RuntimeException("Le refus de paiement a déjà été confirmé");
+        }
+
+        ride.markAsRefused();
+        rideRequestRepository.save(ride);
+
+        BigDecimal originalAmount = ride.getFinalPrice() != null ? ride.getFinalPrice() : ride.getEstimatedPrice();
+        if (originalAmount == null) originalAmount = BigDecimal.ZERO;
+        String currency = ride.getCurrency() != null ? ride.getCurrency().name() : "FBU";
+
+        BigDecimal feePercent = getSettingDecimal("ride.unpaid_fee_percent", "10");
+        BigDecimal fineAmount = getSettingDecimal("ride.unpaid_fine_amount", "5000");
+        BigDecimal feeAmount = originalAmount.multiply(feePercent).divide(new BigDecimal("100"));
+        BigDecimal totalDebt = originalAmount.add(feeAmount).add(fineAmount);
+
+        User passenger = ride.getPassenger();
+
+        PaymentRefusal refusal = PaymentRefusal.builder()
+                .rideId(rideId)
+                .userId(passenger.getId())
+                .userFirstName(passenger.getFirstName())
+                .userLastName(passenger.getLastName())
+                .pickupAddress(ride.getPickupAddress())
+                .destinationAddress(ride.getDestinationAddress())
+                .estimatedDistanceKm(ride.getEstimatedDistanceKm())
+                .originalAmount(originalAmount)
+                .feeAmount(feeAmount)
+                .fineAmount(fineAmount)
+                .totalDebt(totalDebt)
+                .currency(currency)
+                .resolved(false)
+                .build();
+        paymentRefusalRepository.save(refusal);
+
+        passenger.block("Refus de paiement — dette: " + totalDebt + " " + currency, "SYSTEM");
+        passenger.addDebt(totalDebt, currency);
+
+        long totalRefusals1 = paymentRefusalRepository.countByUserId(passenger.getId());
+        if (totalRefusals1 >= 3) {
+            passenger.setPermanentlyLocked(true);
+            passenger.setActive(false);
+            passenger.setBlockReason("Banni — " + totalRefusals1 + " refus de paiement");
+        }
+        userRepository.save(passenger);
+
+        List<String> adminIds = adminRoleRepository.findAllUserIds();
+        for (String adminId : adminIds) {
+            notificationPort.notifyWithLink(
+                    adminId,
+                    "PAYMENT",
+                    "Refus de paiement confirmé par le chauffeur",
+                    "Le chauffeur " + ride.getDriver().getFirstName() + " " + ride.getDriver().getLastName()
+                            + " a confirmé que " + passenger.getFirstName() + " " + passenger.getLastName()
+                            + " a refusé de payer " + originalAmount + " " + currency
+                            + " pour la course " + rideId
+                            + ". Dette totale (avec frais + amende): " + totalDebt + " " + currency
+                            + ". Utilisateur blacklisté.",
+                    "/ride/tracking/" + rideId
+            );
+        }
+
+        messaging.convertAndSendToUser(
+                passenger.getId(),
+                "/queue/ride-update",
+                Map.of(
+                        "rideId", ride.getId(),
+                        "status", ride.getStatus().name(),
+                        "paymentStatus", "REFUSED",
+                        "totalDebt", totalDebt.toPlainString(),
+                        "currency", currency,
+                        "message", "Le chauffeur a confirmé le refus de paiement. Vous êtes blacklisté jusqu'au règlement de " + totalDebt + " " + currency
+                ));
+
+        return toResponse(ride, null);
+    }
+
     public RideResponse refusePayment(String rideId, String userId) {
         RideRequest ride = rideRequestRepository.findById(rideId)
                 .orElseThrow(() -> new RideNotFoundException("Course introuvable"));
@@ -866,6 +989,14 @@ public class RideUseCase {
         paymentRefusalRepository.save(refusal);
 
         passenger.block("Refus de paiement — dette: " + totalDebt + " " + currency, "SYSTEM");
+        passenger.addDebt(totalDebt, currency);
+
+        long totalRefusals2 = paymentRefusalRepository.countByUserId(passenger.getId());
+        if (totalRefusals2 >= 3) {
+            passenger.setPermanentlyLocked(true);
+            passenger.setActive(false);
+            passenger.setBlockReason("Banni — " + totalRefusals2 + " refus de paiement");
+        }
         userRepository.save(passenger);
 
         List<String> adminIds = adminRoleRepository.findAllUserIds();
@@ -1431,6 +1562,15 @@ public class RideUseCase {
 
         if (recipientId != null) {
             messaging.convertAndSendToUser(recipientId, "/queue/ride-chat", message);
+
+            // Notification dans la cloche
+            String senderLabel = isPassenger ? "Passager" : "Chauffeur";
+            notificationPort.notifyWithLink(
+                    recipientId, "MESSAGE",
+                    senderLabel + " : " + user.getFirstName() + " " + user.getLastName(),
+                    content,
+                    "/ride/tracking/" + rideId
+            );
         }
 
         // Broadcast to ride topic for real-time UI
@@ -1584,7 +1724,16 @@ public class RideUseCase {
 
         rideRequestDomainService.releaseDriver(driverId);
         resetConsecutiveRefusals(driverId);
-        applyCooldownPenalty(driverId);
+
+        // Pas de cooldown si le passager a déjà refusé de payer
+        long passengerRefusals2 = paymentRefusalRepository.countByUserId(ride.getPassenger().getId());
+        if (passengerRefusals2 == 0) {
+            applyCooldownPenalty(driverId);
+        } else {
+            log.info("Driver {} transfer exempted — passenger {} has {} payment refusal(s)",
+                    driverId, ride.getPassenger().getId(), passengerRefusals2);
+        }
+
         ride.setDriver(null);
         ride.render();
         ride.setSearchStartedAt(LocalDateTime.now());
@@ -1609,7 +1758,7 @@ public class RideUseCase {
 
         DriverAvailability nearestDriver = null;
         for (DriverAvailability da : nearby) {
-            if (!da.getUser().getId().equals(driverId)) {
+            if (!da.getUser().getId().equals(driverId) && !da.getUser().getId().equals(ride.getPassenger().getId())) {
                 nearestDriver = da;
                 break;
             }
@@ -1647,16 +1796,12 @@ public class RideUseCase {
         messaging.convertAndSendToUser(
                 newDriverUser.getId(),
                 "/queue/ride-request",
-                Map.of(
-                        "rideId", ride.getId(),
-                        "passengerName", ride.getPassenger().getFullName(),
-                        "pickupAddress", ride.getPickupAddress() != null ? ride.getPickupAddress() : "Position actuelle",
-                        "destinationAddress", ride.getDestinationAddress() != null ? ride.getDestinationAddress() : "Destination",
-                        "estimatedPrice", ride.getEstimatedPrice(),
-                        "distance", ride.getEstimatedDistanceKm(),
-                        "duration", ride.getEstimatedDurationMin(),
-                        "currency", ride.getCurrency().name(),
-                        "passengerCount", ride.getPassengerCount()));
+                buildRideRequestMessage(ride, ride.getPassenger(),
+                        ride.getPickupAddress(), ride.getDestinationAddress(),
+                        ride.getEstimatedPrice(),
+                        ride.getEstimatedDistanceKm(),
+                        ride.getEstimatedDurationMin() != null ? ride.getEstimatedDurationMin() : 0,
+                        ride.getCurrency().name(), ride.getPassengerCount()));
 
         messaging.convertAndSendToUser(
                 ride.getPassenger().getId(),
@@ -1697,7 +1842,9 @@ public class RideUseCase {
         }
         map.put("cooldownMinutes", getDriverCooldownMinutes());
         map.put("consecutiveRefusals", driver != null ? driver.getConsecutiveRefusals() : 0);
-        map.put("nextRefusalPenalty", getRefusalPenaltyForCount((driver != null ? driver.getConsecutiveRefusals() : 0) + 1));
+        int refCount = driver != null ? driver.getConsecutiveRefusals() : 0;
+        map.put("currentPenaltyMinutes", refCount > 1 ? getRefusalPenaltyForCount(refCount - 1) : 0);
+        map.put("nextRefusalPenalty", getRefusalPenaltyForCount(refCount));
         return map;
     }
 
@@ -1908,6 +2055,7 @@ public class RideUseCase {
 
             List<DriverAvailability> candidates = nearby.stream()
                     .filter(d -> d.isAvailable())
+                    .filter(d -> !d.getUser().getId().equals(ride.getPassenger().getId()))
                     .toList();
 
             if (!candidates.isEmpty() && totalMinutesSinceSearch < maxTotalMinutes) {
@@ -1917,21 +2065,16 @@ public class RideUseCase {
                 ride.setDriverNotifiedAt(LocalDateTime.now());
                 rideRequestRepository.save(ride);
 
-                for (DriverAvailability candidate : candidates) {
-                    messaging.convertAndSendToUser(
-                            candidate.getUser().getId(),
-                            "/queue/ride-request",
-                            Map.of(
-                                    "rideId", ride.getId(),
-                                    "passengerName", ride.getPassenger().getFullName(),
-                                    "pickupAddress", ride.getPickupAddress() != null ? ride.getPickupAddress() : "Position actuelle",
-                                    "destinationAddress", ride.getDestinationAddress() != null ? ride.getDestinationAddress() : "Destination",
-                                    "estimatedPrice", ride.getEstimatedPrice(),
-                                    "distance", ride.getEstimatedDistanceKm(),
-                                    "duration", ride.getEstimatedDurationMin(),
-                                    "currency", ride.getCurrency().name(),
-                                    "passengerCount", ride.getPassengerCount()
-                            ));
+            for (DriverAvailability candidate : candidates) {
+                messaging.convertAndSendToUser(
+                        candidate.getUser().getId(),
+                        "/queue/ride-request",
+                        buildRideRequestMessage(ride, ride.getPassenger(),
+                                ride.getPickupAddress(), ride.getDestinationAddress(),
+                                ride.getEstimatedPrice(),
+                                ride.getEstimatedDistanceKm(),
+                                ride.getEstimatedDurationMin() != null ? ride.getEstimatedDurationMin() : 0,
+                                ride.getCurrency().name(), ride.getPassengerCount()));
 
                     notificationPort.notifyWithLink(
                             candidate.getUser().getId(), "BOOKING",
@@ -2305,5 +2448,24 @@ public class RideUseCase {
         result.put("month", month);
         result.put("days", new ArrayList<>(dailyMap.values()));
         return result;
+    }
+
+    private Map<String, Object> buildRideRequestMessage(RideRequest ride, User passenger,
+            String pickupAddress, String destinationAddress,
+            BigDecimal estimatedPrice, BigDecimal distance, int duration, String currency,
+            int passengerCount) {
+        long paymentRefusals = paymentRefusalRepository.countByUserId(passenger.getId());
+        var msg = new java.util.LinkedHashMap<String, Object>();
+        msg.put("rideId", ride.getId());
+        msg.put("passengerName", passenger.getFullName());
+        msg.put("pickupAddress", pickupAddress != null ? pickupAddress : "Position actuelle");
+        msg.put("destinationAddress", destinationAddress != null ? destinationAddress : "Destination");
+        msg.put("estimatedPrice", estimatedPrice);
+        msg.put("distance", distance != null ? distance.doubleValue() : 0);
+        msg.put("duration", duration);
+        msg.put("currency", currency);
+        msg.put("passengerCount", passengerCount);
+        msg.put("passengerPaymentRefusals", paymentRefusals);
+        return msg;
     }
 }

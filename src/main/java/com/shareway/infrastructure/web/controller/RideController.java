@@ -169,6 +169,15 @@ public class RideController {
                 "Paiement refusé"));
     }
 
+    @PostMapping("/{id}/confirm-refused")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Le chauffeur confirme le refus de paiement du passager")
+    public ResponseEntity<ApiResponse<RideResponse>> confirmPaymentRefused(@PathVariable String id) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                rideUseCase.confirmPaymentRefused(id, SecurityUtils.currentUserId()),
+                "Refus de paiement confirmé — passager blacklisté"));
+    }
+
     @GetMapping("/ratings/user/{userId}")
     @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Avis taxi reçus par un utilisateur")

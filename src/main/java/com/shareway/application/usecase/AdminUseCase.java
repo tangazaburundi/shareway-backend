@@ -397,9 +397,10 @@ public class AdminUseCase {
         User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found: " + userId));
         user.unblock();
+        user.clearDebt();
         user.unlockLoginLock();
         userRepository.save(user);
-        notificationPort.notify(userId, "SYSTEM", "Account restored", "Your account has been restored.");
+        notificationPort.notify(userId, "SYSTEM", "Account restored", "Your account has been restored. Dettes effacées.");
         auditPort.log("USER_UNBLOCKED", "User", userId, null, null, adminId);
         return toUserResponse(user);
     }
@@ -553,6 +554,7 @@ public class AdminUseCase {
                 .lockedUntil(u.getLockedUntil())
                 .adminApproved(u.isAdminApproved()).systemRole(sysRole)
                 .rating(u.getRating()).reviewCount(u.getReviewCount())
+                .totalDebt(u.getTotalDebt()).debtCurrency(u.getDebtCurrency())
                 .createdAt(u.getCreatedAt()).lastLoginAt(u.getLastLoginAt()).build();
     }
 

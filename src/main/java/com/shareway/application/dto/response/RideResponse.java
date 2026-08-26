@@ -75,4 +75,9 @@ public class RideResponse {
 
     // Surge
     private BigDecimal surgeMultiplier;
+
+    // Rejection info
+    private boolean rejectedByDriver;
+    private String rejectionReason;
+    private LocalDateTime rejectedAt;
 }

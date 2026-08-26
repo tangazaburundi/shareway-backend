@@ -18,6 +18,8 @@ public class UserResponse {
     private boolean locked, permanentlyLocked;
     private boolean adminApproved;
     private BigDecimal rating;
+    private BigDecimal totalDebt;
+    private String debtCurrency;
     private int reviewCount;
     private String blockReason;
     private LocalDateTime lockedUntil;

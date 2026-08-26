@@ -234,6 +234,10 @@ public class RideRequest {
         this.paymentStatus = PaymentStatus.CAPTURED;
     }
 
+    public void markAsRefused() {
+        this.paymentStatus = PaymentStatus.REFUSED;
+    }
+
     private void calculateFees() {
         if (finalPrice == null) return;
         this.platformFeeAmount = finalPrice.multiply(platformFeePercent)
@@ -271,6 +275,6 @@ public class RideRequest {
     }
 
     public enum PaymentStatus {
-        PENDING, AUTHORIZED, CAPTURED, REFUNDED, FAILED
+        PENDING, AUTHORIZED, CAPTURED, REFUNDED, FAILED, REFUSED
     }
 }

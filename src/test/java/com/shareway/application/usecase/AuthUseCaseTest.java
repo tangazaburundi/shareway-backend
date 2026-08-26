@@ -13,7 +13,8 @@ import com.shareway.domain.exception.AccountPermanentlyLockedException;
 import com.shareway.domain.exception.NotAuthorizedException;
 import com.shareway.domain.exception.ResourceAlreadyExistsException;
 import com.shareway.domain.exception.UserNotFoundException;
-import com.shareway.domain.model.User;
+import com.shareway.domain.model
+        .User;
 import com.shareway.domain.repository.AdminRoleRepository;
 import com.shareway.domain.repository.PasswordResetTokenRepository;
 import com.shareway.domain.repository.UserRepository;
