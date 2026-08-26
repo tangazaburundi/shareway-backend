@@ -371,9 +371,12 @@ public class InvoiceService {
         if (status == null) return "En attente";
         return switch (status) {
             case "PAID" -> "Paye";
+            case "CAPTURED" -> "Paye";
             case "PENDING" -> "En attente";
+            case "AUTHORIZED" -> "Autorise";
             case "FAILED" -> "Echoue";
             case "REFUNDED" -> "Rembourse";
+            case "REFUSED" -> "Paiement refuse";
             default -> status;
         };
     }
