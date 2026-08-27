@@ -446,6 +446,31 @@ public class RideController {
         return ResponseEntity.ok(ApiResponse.noContent("Alerte SOS envoyée"));
     }
 
+    @PutMapping("/{id}/sos/location")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Mettre à jour la position GPS en temps réel pendant une alerte SOS")
+    public ResponseEntity<ApiResponse<Void>> updateSosLocation(
+            @PathVariable String id,
+            @org.springframework.web.bind.annotation.RequestBody SosAlertRequest req) {
+        rideUseCase.updateSosLocation(id, SecurityUtils.currentUserId(), req);
+        return ResponseEntity.ok(ApiResponse.noContent("Position SOS mise à jour"));
+    }
+
+    @GetMapping("/{id}/sos/location")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Récupérer la dernière position SOS connue d'une course")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getSosLocation(@PathVariable String id) {
+        return ResponseEntity.ok(ApiResponse.ok(rideUseCase.getSosLocation(id, SecurityUtils.currentUserId())));
+    }
+
+    @PostMapping("/{id}/sos/stop")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Désactiver une alerte SOS active")
+    public ResponseEntity<ApiResponse<Void>> stopSosAlert(@PathVariable String id) {
+        rideUseCase.stopSosAlert(id, SecurityUtils.currentUserId());
+        return ResponseEntity.ok(ApiResponse.noContent("Alerte SOS désactivée"));
+    }
+
     // ════════════════════════════════════════════════════════════════
     // CHAT — Messagerie in-ride
     // ════════════════════════════════════════════════════════════════
