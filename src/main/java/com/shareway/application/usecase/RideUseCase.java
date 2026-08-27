@@ -2,7 +2,7 @@ package com.shareway.application.usecase;
 
 import com.shareway.application.dto.request.CreateRideRequest;
 import com.shareway.application.dto.request.RateRideRequest;
-
+import com.shareway.application.dto.request.SosAlertRequest;
 import com.shareway.application.dto.request.UpdateDriverLocationRequest;
 import com.shareway.application.dto.response.DriverAvailabilityResponse;
 import com.shareway.application.dto.response.NearbyDriverResponse;
@@ -98,6 +98,15 @@ public class RideUseCase {
 
     // In-memory store for ride chat messages (ephemeral, lives until server restart)
     private final ConcurrentHashMap<String, List<Map<String, Object>>> rideMessages = new ConcurrentHashMap<>();
+
+    // In-memory registry of ride IDs with an active SOS alert (used to stream live GPS while SOS is on)
+    private final java.util.Set<String> activeSosRideIds = ConcurrentHashMap.newKeySet();
+
+    // In-memory last known SOS position per ride: rideId -> [lat, lng]
+    private final ConcurrentHashMap<String, double[]> sosLastLocation = new ConcurrentHashMap<>();
+
+    // In-memory SOS triggering user id per ride
+    private final ConcurrentHashMap<String, String> sosLastUserId = new ConcurrentHashMap<>();
 
     // ════════════════════════════════════════════════════════════════
     // PASSENGER — Créer une demande de course
@@ -1506,9 +1515,124 @@ public class RideUseCase {
             }
         }
 
+        // Mark the ride as having an active SOS so live GPS can stream to admins
+        activeSosRideIds.add(rideId);
+        sosLastLocation.put(rideId, new double[]{sosLat, sosLng});
+        sosLastUserId.put(rideId, userId);
+
         log.warn("SOS ALERT — ride={}, user={}, phone={}, currentPosition=({},{}), admins notified={}",
                 rideId, userId, user.getPhone(),
                 sosLat, sosLng, targetAdminIds.size());
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // SOS — Position GPS en temps réel du passager (ne touche PAS driver_availability)
+    // ════════════════════════════════════════════════════════════════
+
+    @Transactional
+    public void updateSosLocation(String rideId, String userId, SosAlertRequest req) {
+        if (!activeSosRideIds.contains(rideId)) {
+            throw new InvalidOperationException("Aucune alerte SOS active pour cette course");
+        }
+
+        RideRequest ride = rideRequestRepository.findById(rideId)
+                .orElseThrow(() -> new RideNotFoundException("Course non trouvée: " + rideId));
+
+        boolean isPassenger = ride.getPassenger() != null && ride.getPassenger().getId().equals(userId);
+        boolean isDriver = ride.getDriver() != null && ride.getDriver().getId().equals(userId);
+        if (!isPassenger && !isDriver) {
+            throw new NotAuthorizedException("Vous n'êtes pas participant de cette course");
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserNotFoundException("Utilisateur non trouvé: " + userId));
+
+        double sosLat = (req.getLat() != null) ? req.getLat() : (ride.getPickupLat() != null ? ride.getPickupLat().doubleValue() : 0.0);
+        double sosLng = (req.getLng() != null) ? req.getLng() : (ride.getPickupLng() != null ? ride.getPickupLng().doubleValue() : 0.0);
+
+        // Keep last known SOS position in memory so late subscribers (admin) can fetch it
+        sosLastLocation.put(rideId, new double[]{sosLat, sosLng});
+        sosLastUserId.put(rideId, userId);
+
+        // Stream the live position to admins (topic only, never driver_availability)
+        Map<String, Object> locationData = new java.util.LinkedHashMap<>();
+        locationData.put("type", "SOS_LOCATION");
+        locationData.put("rideId", rideId);
+        locationData.put("userId", userId);
+        locationData.put("userName", user.getFirstName() + " " + user.getLastName());
+        locationData.put("userPhone", user.getPhone());
+        locationData.put("currentLat", sosLat);
+        locationData.put("currentLng", sosLng);
+        locationData.put("triggeredBy", isDriver ? "DRIVER" : "PASSENGER");
+        locationData.put("timestamp", LocalDateTime.now().toString());
+
+        messaging.convertAndSend("/topic/admin/sos-location", locationData);
+        messaging.convertAndSend("/topic/ride/" + rideId + "/sos-tracking", locationData);
+    }
+
+    @Transactional
+    public void stopSosAlert(String rideId, String userId) {
+        RideRequest ride = rideRequestRepository.findById(rideId)
+                .orElseThrow(() -> new RideNotFoundException("Course non trouvée: " + rideId));
+
+        boolean isPassenger = ride.getPassenger() != null && ride.getPassenger().getId().equals(userId);
+        boolean isDriver = ride.getDriver() != null && ride.getDriver().getId().equals(userId);
+        if (!isPassenger && !isDriver) {
+            throw new NotAuthorizedException("Vous n'êtes pas participant de cette course");
+        }
+
+        activeSosRideIds.remove(rideId);
+        sosLastLocation.remove(rideId);
+        sosLastUserId.remove(rideId);
+
+        Map<String, Object> stopData = new java.util.HashMap<>();
+        stopData.put("type", "SOS_STOPPED");
+        stopData.put("rideId", rideId);
+        messaging.convertAndSend("/topic/admin/sos-location", stopData);
+        messaging.convertAndSend("/topic/ride/" + rideId + "/sos-tracking", stopData);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getSosLocation(String rideId, String userId) {
+        RideRequest ride = rideRequestRepository.findById(rideId)
+                .orElseThrow(() -> new RideNotFoundException("Course non trouvée: " + rideId));
+
+        boolean isPassenger = ride.getPassenger() != null && ride.getPassenger().getId().equals(userId);
+        boolean isDriver = ride.getDriver() != null && ride.getDriver().getId().equals(userId);
+        boolean isAdmin = adminRoleRepository.findAllUserIds().contains(userId);
+        if (!isPassenger && !isDriver && !isAdmin) {
+            throw new NotAuthorizedException("Vous n'êtes pas participant de cette course");
+        }
+
+        Map<String, Object> data = new java.util.LinkedHashMap<>();
+        if (activeSosRideIds.contains(rideId)) {
+            double[] pos = sosLastLocation.get(rideId);
+            String sosUserId = sosLastUserId.getOrDefault(rideId,
+                    ride.getPassenger() != null ? ride.getPassenger().getId() : null);
+            String userName = null;
+            String userPhone = null;
+            if (sosUserId != null) {
+                try {
+                    User sosUser = userRepository.findById(sosUserId).orElse(null);
+                    if (sosUser != null) {
+                        userName = sosUser.getFirstName() + " " + sosUser.getLastName();
+                        userPhone = sosUser.getPhone();
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            data.put("active", true);
+            data.put("rideId", rideId);
+            data.put("userId", sosUserId);
+            data.put("userName", userName);
+            data.put("userPhone", userPhone);
+            data.put("currentLat", pos != null ? pos[0] : (ride.getPickupLat() != null ? ride.getPickupLat().doubleValue() : 0.0));
+            data.put("currentLng", pos != null ? pos[1] : (ride.getPickupLng() != null ? ride.getPickupLng().doubleValue() : 0.0));
+        } else {
+            data.put("active", false);
+            data.put("rideId", rideId);
+        }
+        return data;
     }
 
     // ════════════════════════════════════════════════════════════════
