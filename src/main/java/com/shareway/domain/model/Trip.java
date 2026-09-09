@@ -151,6 +151,14 @@ public class Trip {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    /**
+     * Version JPA pour l'optimistic locking : protège la réservation
+     * contre les courses concurrentes (surbooking).
+     */
+    @jakarta.persistence.Version
+    @Column(name = "version")
+    private Long version;
+
     // Relations
     @OneToOne(mappedBy = "trip", cascade = CascadeType.ALL, orphanRemoval = true)
     private TripPreferences preferences;

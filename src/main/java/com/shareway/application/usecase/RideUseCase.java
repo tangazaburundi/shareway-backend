@@ -1,6 +1,7 @@
 package com.shareway.application.usecase;
 
 import com.shareway.application.dto.request.CreateRideRequest;
+import com.shareway.application.dto.request.FuelEntryRequest;
 import com.shareway.application.dto.request.RateRideRequest;
 import com.shareway.application.dto.request.SosAlertRequest;
 import com.shareway.application.dto.request.UpdateDriverLocationRequest;
@@ -312,6 +313,12 @@ public class RideUseCase {
     public RideResponse getRideById(String rideId, String userId) {
         RideRequest ride = rideRequestRepository.findById(rideId)
                 .orElseThrow(() -> new RideNotFoundException("Course introuvable"));
+        String driverId = ride.getDriver() != null ? ride.getDriver().getId() : null;
+        String passengerId = ride.getPassenger() != null ? ride.getPassenger().getId() : null;
+        if ((driverId == null || !driverId.equals(userId))
+                && (passengerId == null || !passengerId.equals(userId))) {
+            throw new NotAuthorizedException("Vous n'avez pas accès à cette course");
+        }
         return toResponse(ride, null);
     }
 
@@ -1087,6 +1094,13 @@ public class RideUseCase {
     // ════════════════════════════════════════════════════════════════
 
     public void updateDriverLocation(String driverId, UpdateDriverLocationRequest req) {
+        BigDecimal lat = req.getLat();
+        BigDecimal lng = req.getLng();
+        if (lat == null || lng == null
+                || lat.compareTo(BigDecimal.valueOf(-90)) < 0 || lat.compareTo(BigDecimal.valueOf(90)) > 0
+                || lng.compareTo(BigDecimal.valueOf(-180)) < 0 || lng.compareTo(BigDecimal.valueOf(180)) > 0) {
+            throw new InvalidOperationException("Coordonnées GPS invalides");
+        }
         DriverAvailability availability = driverAvailabilityRepository.findByDriverId(driverId)
                 .orElse(null);
 
@@ -1101,7 +1115,7 @@ public class RideUseCase {
             driverAvailabilityRepository.save(availability);
         }
 
-        availability.updateLocation(req.getLat(), req.getLng(), req.getHeading());
+        availability.updateLocation(lat, lng, req.getHeading());
         driverAvailabilityRepository.save(availability);
 
         // Si le chauffeur a une course active, envoyer la position au passager
@@ -2408,54 +2422,52 @@ public class RideUseCase {
     }
 
     @Transactional
-    public FuelEntry addFuelEntry(String driverId, Map<String, Object> request) {
+    public FuelEntry addFuelEntry(String driverId, FuelEntryRequest request) {
         User driver = userRepository.findById(driverId)
                 .orElseThrow(() -> new UserNotFoundException("Chauffeur non trouvé: " + driverId));
 
         FuelEntry entry = FuelEntry.builder()
                 .driver(driver)
-                .refuelDate(java.time.LocalDate.parse((String) request.get("refuelDate")))
-                .liters(new java.math.BigDecimal(request.get("liters").toString()))
-                .pricePerLiter(new java.math.BigDecimal(request.get("pricePerLiter").toString()))
-                .currency(request.getOrDefault("currency", "FBU").toString())
-                .odometerKm(request.get("odometerKm") != null ?
-                        new java.math.BigDecimal(request.get("odometerKm").toString()) : null)
-                .stationName((String) request.get("stationName"))
-                .notes((String) request.get("notes"))
+                .refuelDate(request.getRefuelDate())
+                .liters(request.getLiters())
+                .pricePerLiter(request.getPricePerLiter())
+                .currency(request.getCurrency() != null ? request.getCurrency() : "FBU")
+                .odometerKm(request.getOdometerKm())
+                .stationName(request.getStationName())
+                .notes(request.getNotes())
                 .build();
 
         return fuelEntryRepository.save(entry);
     }
 
     @Transactional
-    public FuelEntry updateFuelEntry(String driverId, String entryId, Map<String, Object> request) {
+    public FuelEntry updateFuelEntry(String driverId, String entryId, FuelEntryRequest request) {
         User driver = userRepository.findById(driverId)
                 .orElseThrow(() -> new UserNotFoundException("Chauffeur non trouvé: " + driverId));
 
         FuelEntry entry = fuelEntryRepository.findByIdAndDriver(entryId, driver)
                 .orElseThrow(() -> new RuntimeException("Entrée de carburant non trouvée"));
 
-        if (request.containsKey("refuelDate")) {
-            entry.setRefuelDate(java.time.LocalDate.parse((String) request.get("refuelDate")));
+        if (request.getRefuelDate() != null) {
+            entry.setRefuelDate(request.getRefuelDate());
         }
-        if (request.containsKey("liters")) {
-            entry.setLiters(new java.math.BigDecimal(request.get("liters").toString()));
+        if (request.getLiters() != null) {
+            entry.setLiters(request.getLiters());
         }
-        if (request.containsKey("pricePerLiter")) {
-            entry.setPricePerLiter(new java.math.BigDecimal(request.get("pricePerLiter").toString()));
+        if (request.getPricePerLiter() != null) {
+            entry.setPricePerLiter(request.getPricePerLiter());
         }
-        if (request.containsKey("currency")) {
-            entry.setCurrency(request.get("currency").toString());
+        if (request.getCurrency() != null) {
+            entry.setCurrency(request.getCurrency());
         }
-        if (request.containsKey("odometerKm")) {
-            entry.setOdometerKm(request.get("odometerKm") != null ?
-                    new java.math.BigDecimal(request.get("odometerKm").toString()) : null);
+        if (request.getOdometerKm() != null) {
+            entry.setOdometerKm(request.getOdometerKm());
         }
-        if (request.containsKey("stationName")) {
-            entry.setStationName((String) request.get("stationName"));
+        if (request.getStationName() != null) {
+            entry.setStationName(request.getStationName());
         }
-        if (request.containsKey("notes")) {
-            entry.setNotes((String) request.get("notes"));
+        if (request.getNotes() != null) {
+            entry.setNotes(request.getNotes());
         }
 
         return fuelEntryRepository.save(entry);

@@ -28,7 +28,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (header != null && header.startsWith("Bearer ")) {
             try {
                 String token = header.substring(7);
-                if (jwtService.isValid(token)) {
+                if (jwtService.isValidAccessToken(token)) {
                     String userId = jwtService.extractUserId(token);
                     String systemRole = jwtService.extractSystemeRole(token);
                     String role = jwtService.extractRole(token);

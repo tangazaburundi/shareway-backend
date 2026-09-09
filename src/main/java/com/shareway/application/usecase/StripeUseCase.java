@@ -9,9 +9,12 @@ import com.shareway.domain.repository.BookingRepository;
 import com.shareway.domain.repository.PaymentRepository;
 import com.shareway.domain.repository.UserRepository;
 import com.stripe.Stripe;
+import com.stripe.exception.SignatureVerificationException;
+import com.stripe.model.Event;
 import com.stripe.model.PaymentIntent;
 import com.stripe.model.Refund;
 import com.stripe.model.Transfer;
+import com.stripe.net.Webhook;
 import com.stripe.param.PaymentIntentCaptureParams;
 import com.stripe.param.PaymentIntentCreateParams;
 import com.stripe.param.RefundCreateParams;
@@ -38,6 +41,9 @@ public class StripeUseCase {
 
     @Value("${shareway.stripe.secret-key}")
     private String stripeSecretKey;
+
+    @Value("${shareway.stripe.webhook-secret}")
+    private String webhookEndpointSecret;
 
     /**
      * Crée un PaymentIntent Stripe pour une réservation.
@@ -213,13 +219,109 @@ public class StripeUseCase {
     }
 
     /**
-     * Webhook Stripe - confirme le paiement côté serveur
+     * Webhook Stripe - confirme le paiement côté serveur.
+     * <p>
+     * Sécurité :
+     * 1. La signature Stripe-Signature est vérifiée cryptographiquement
+     *    (Webhook.constructEvent). Un payload forgé est rejeté.
+     * 2. Le traitement est IDEMPOTENT : un événement reçu plusieurs fois
+     *    ne modifie pas l'état plus d'une fois.
+     * 3. Seuls les événements relatifs à nos PaymentIntents sont traités.
      */
     public void handleWebhook(String payload, String sigHeader) {
         Stripe.apiKey = stripeSecretKey;
-        // In production: verify signature with Stripe.webhookEndpointSecret
-        // This is a simplified version
-        log.info("Stripe webhook received (signature check should be added in production)");
+
+        Event event;
+        try {
+            event = Webhook.constructEvent(payload, sigHeader, webhookEndpointSecret);
+        } catch (SignatureVerificationException e) {
+            log.warn("Stripe webhook rejected: invalid signature");
+            throw new InvalidOperationException("Invalid Stripe signature");
+        }
+
+        switch (event.getType()) {
+            case "payment_intent.succeeded" -> {
+                PaymentIntent intent = extractPaymentIntent(event);
+                if (intent == null) return;
+                markPaymentSucceeded(intent);
+            }
+            case "payment_intent.payment_failed" -> {
+                PaymentIntent intent = extractPaymentIntent(event);
+                if (intent == null) return;
+                markPaymentFailed(intent);
+            }
+            case "charge.refunded" -> {
+                com.stripe.model.Charge charge = extractCharge(event);
+                if (charge == null) return;
+                markPaymentRefunded(charge);
+            }
+            default -> log.debug("Stripe webhook ignored event type: {}", event.getType());
+        }
+    }
+
+    private PaymentIntent extractPaymentIntent(Event event) {
+        Object data = event.getData().getObject();
+        if (data instanceof PaymentIntent intent) return intent;
+        log.warn("Stripe webhook: unexpected payload for {}", event.getType());
+        return null;
+    }
+
+    private com.stripe.model.Charge extractCharge(Event event) {
+        Object data = event.getData().getObject();
+        if (data instanceof com.stripe.model.Charge charge) return charge;
+        log.warn("Stripe webhook: unexpected payload for {}", event.getType());
+        return null;
+    }
+
+    private void markPaymentSucceeded(PaymentIntent intent) {
+        String intentId = intent.getId();
+        paymentRepository.findByStripePaymentIntentId(intentId)
+                .filter(p -> p.getStatus() != Payment.PaymentStatus.SUCCEEDED)
+                .ifPresent(payment -> {
+                    payment.setStatus(Payment.PaymentStatus.SUCCEEDED);
+                    paymentRepository.save(payment);
+                });
+
+        bookingRepository.findByStripePaymentIntentId(intentId)
+                .filter(b -> !"SUCCEEDED".equalsIgnoreCase(b.getStripeStatus()))
+                .ifPresent(booking -> {
+                    booking.setStripeStatus("SUCCEEDED");
+                    bookingRepository.save(booking);
+                    log.info("Payment confirmed for booking {}", booking.getId());
+                });
+    }
+
+    private void markPaymentFailed(PaymentIntent intent) {
+        paymentRepository.findByStripePaymentIntentId(intent.getId())
+                .filter(p -> p.getStatus() != Payment.PaymentStatus.FAILED)
+                .ifPresent(payment -> {
+                    payment.setStatus(Payment.PaymentStatus.FAILED);
+                    paymentRepository.save(payment);
+                });
+    }
+
+    private void markPaymentRefunded(com.stripe.model.Charge charge) {
+        String intentId = charge.getPaymentIntent();
+        if (intentId == null) return;
+
+        Long amountRefunded = charge.getAmountRefunded();
+        Long amount = charge.getAmount();
+
+        paymentRepository.findByStripePaymentIntentId(intentId)
+                .filter(p -> p.getStatus() != Payment.PaymentStatus.REFUNDED)
+                .ifPresent(payment -> {
+                    Payment.PaymentStatus newStatus = (amountRefunded != null && amount != null
+                            && amountRefunded < amount)
+                            ? Payment.PaymentStatus.PARTIALLY_REFUNDED
+                            : Payment.PaymentStatus.REFUNDED;
+                    payment.setStatus(newStatus);
+                    if (amountRefunded != null) {
+                        boolean hasCents = !"fbu".equalsIgnoreCase(charge.getCurrency());
+                        payment.setRefundAmount(
+                                java.math.BigDecimal.valueOf(amountRefunded).movePointLeft(hasCents ? 2 : 0));
+                    }
+                    paymentRepository.save(payment);
+                });
     }
 
     /**
@@ -254,7 +356,11 @@ public class StripeUseCase {
 
     private long convertToSmallestUnit(BigDecimal amount, String currency) {
         // FBU has no cents, EUR/USD multiply by 100
-        if ("FBU".equals(currency)) return amount.longValue();
-        return amount.multiply(BigDecimal.valueOf(100)).longValue();
+        if ("FBU".equals(currency)) {
+            return amount.setScale(0, java.math.RoundingMode.HALF_UP).longValueExact();
+        }
+        return amount.setScale(2, java.math.RoundingMode.HALF_UP)
+                .multiply(BigDecimal.valueOf(100))
+                .longValueExact();
     }
 }

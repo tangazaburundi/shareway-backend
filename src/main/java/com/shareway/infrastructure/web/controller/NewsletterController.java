@@ -29,13 +29,17 @@ public class NewsletterController {
         if (email == null || email.isBlank()) {
             return ResponseEntity.badRequest().body(ApiResponse.error("VALIDATION_ERROR", "Email requis."));
         }
+        email = email.trim().toLowerCase();
+        if (!email.matches("^[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}$") || email.length() > 254) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("VALIDATION_ERROR", "Email invalide."));
+        }
 
-        if (newsletterSubscriberRepository.existsByEmail(email.toLowerCase().trim())) {
+        if (newsletterSubscriberRepository.existsByEmail(email)) {
             return ResponseEntity.ok(ApiResponse.noContent("Déjà inscrit à la newsletter !"));
         }
 
         newsletterSubscriberRepository.save(
-                NewsletterSubscriber.builder().email(email.toLowerCase().trim()).build());
+                NewsletterSubscriber.builder().email(email).build());
 
         log.info("Newsletter subscription: {}", email);
         return ResponseEntity.status(HttpStatus.CREATED)

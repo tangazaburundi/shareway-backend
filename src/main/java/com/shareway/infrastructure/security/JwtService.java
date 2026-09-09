@@ -25,6 +25,8 @@ public class JwtService implements JwtPort {
             @Value("${security.jwt.expiration:86400000}") long expiration,
             @Value("${security.jwt.refresh-expiration:604800000}") long refreshExpiration
     ) {
+        if (secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32)
+            throw new IllegalStateException("security.jwt.secret must be at least 32 bytes");
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.expiration = expiration;
         this.refreshExpiration = refreshExpiration;
@@ -69,6 +71,20 @@ public class JwtService implements JwtPort {
         try {
             parse(token);
             return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Valide le token ET son type (ACCESS / REFRESH / 2FA_SESSION).
+     * Un refresh token ou un token de session 2FA ne doit jamais
+     * être accepté comme authentification d'accès.
+     */
+    public boolean isValidAccessToken(String token) {
+        try {
+            Claims claims = parse(token);
+            return "ACCESS".equals(claims.get("type"));
         } catch (Exception e) {
             return false;
         }

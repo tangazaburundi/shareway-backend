@@ -35,6 +35,7 @@ import com.shareway.domain.repository.VehicleRepository;
 import com.shareway.domain.repository.EmergencyContactRepository;
 import com.shareway.domain.model.EmergencyContact;
 import com.shareway.application.dto.response.EmergencyContactResponse;
+import com.shareway.infrastructure.util.FileTypeValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
@@ -415,19 +416,18 @@ public class UserUseCase {
     }
 
     private void validateImageFile(MultipartFile file) {
-        if (file.isEmpty()) throw new InvalidOperationException("File is empty");
-        String ct = file.getContentType();
-        if (ct == null || !ct.startsWith("image/"))
-            throw new InvalidOperationException("Only image files are accepted");
         if (file.getSize() > 5 * 1024 * 1024L)
             throw new InvalidOperationException("Image must be under 5 MB");
+        FileTypeValidator.FileType detected = FileTypeValidator.detect(file);
+        if (detected.category == null || !detected.category.equals("image"))
+            throw new InvalidOperationException("Only image files are accepted");
     }
 
     private void validateFile(MultipartFile file, long maxBytes) {
-        if (file.isEmpty()) throw new InvalidOperationException("File is empty");
         if (file.getSize() > maxBytes)
             throw new InvalidOperationException(
                     "File must be under " + (maxBytes / 1024 / 1024) + " MB");
+        FileTypeValidator.detect(file);
     }
 
     /**

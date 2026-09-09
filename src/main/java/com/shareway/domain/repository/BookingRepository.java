@@ -17,6 +17,8 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
 
     Optional<Booking> findByTripIdAndPassengerId(String tripId, String passengerId);
 
+    Optional<Booking> findByStripePaymentIntentId(String stripePaymentIntentId);
+
     List<Booking> findByTripId(String tripId);
 
     /*    @Query("""

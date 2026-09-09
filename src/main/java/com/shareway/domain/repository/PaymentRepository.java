@@ -8,10 +8,13 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface PaymentRepository extends JpaRepository<Payment, String> {
     List<Payment> findByUserIdOrderByCreatedAtDesc(String userId);
+
+    Optional<Payment> findByStripePaymentIntentId(String stripePaymentIntentId);
 
     @Query("SELECT SUM(p.amount) FROM Payment p WHERE p.user.id = :userId AND p.status = 'SUCCEEDED' AND p.currency = :currency")
     BigDecimal sumByUserAndCurrency(@Param("userId") String userId, @Param("currency") Payment.PaymentCurrency currency);

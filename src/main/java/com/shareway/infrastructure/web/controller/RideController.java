@@ -1,6 +1,9 @@
 package com.shareway.infrastructure.web.controller;
 
+import com.shareway.application.dto.request.ContentRequest;
 import com.shareway.application.dto.request.CreateRideRequest;
+import com.shareway.application.dto.request.FuelEntryRequest;
+import com.shareway.application.dto.request.PromoCodeRequest;
 import com.shareway.application.dto.request.RateRideRequest;
 import com.shareway.application.dto.request.RespondRideRequest;
 import com.shareway.application.dto.request.SosAlertRequest;
@@ -25,6 +28,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -57,12 +61,15 @@ public class RideController {
     }
 
     @GetMapping("/nearby")
-    @Operation(summary = "Chauffeurs proches d'une position (debug/admin)")
+    @PreAuthorize("isAuthenticated()")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Chauffeurs proches d'une position (authentifié)")
     public ResponseEntity<ApiResponse<List<NearbyDriverResponse>>> getNearbyDrivers(
             @RequestParam double lat,
             @RequestParam double lng,
             @RequestParam(defaultValue = "10") int max) {
-        return ResponseEntity.ok(ApiResponse.ok(rideUseCase.getNearbyDrivers(lat, lng, max)));
+        int capped = Math.max(1, Math.min(max, 50));
+        return ResponseEntity.ok(ApiResponse.ok(rideUseCase.getNearbyDrivers(lat, lng, capped)));
     }
 
     @GetMapping("/config/timeout")
@@ -487,10 +494,9 @@ public class RideController {
     @Operation(summary = "Envoyer un message dans une course")
     public ResponseEntity<ApiResponse<Map<String, Object>>> sendRideMessage(
             @PathVariable String id,
-            @RequestBody Map<String, String> body) {
-        String content = body.getOrDefault("content", "");
+            @Valid @RequestBody ContentRequest body) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.ok(rideUseCase.sendRideMessage(id, content, SecurityUtils.currentUserId())));
+                .body(ApiResponse.ok(rideUseCase.sendRideMessage(id, body.getContent(), SecurityUtils.currentUserId())));
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -534,7 +540,7 @@ public class RideController {
     @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Ajouter une entrée de carburant")
     public ResponseEntity<ApiResponse<com.shareway.domain.model.FuelEntry>> addFuelEntry(
-            @RequestBody Map<String, Object> body) {
+            @Valid @RequestBody FuelEntryRequest body) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok(
                         rideUseCase.addFuelEntry(SecurityUtils.currentUserId(), body),
@@ -554,7 +560,7 @@ public class RideController {
     @Operation(summary = "Modifier une entrée de carburant")
     public ResponseEntity<ApiResponse<com.shareway.domain.model.FuelEntry>> updateFuelEntry(
             @PathVariable String id,
-            @RequestBody Map<String, Object> body) {
+            @Valid @RequestBody FuelEntryRequest body) {
         return ResponseEntity.ok(ApiResponse.ok(
                 rideUseCase.updateFuelEntry(SecurityUtils.currentUserId(), id, body),
                 "Entrée de carburant mise à jour"));
@@ -577,9 +583,8 @@ public class RideController {
     @Operation(summary = "Appliquer un code promo à une course")
     public ResponseEntity<ApiResponse<RideResponse>> applyPromoCode(
             @PathVariable String id,
-            @RequestBody Map<String, String> body) {
-        String code = body.getOrDefault("code", "");
+            @Valid @RequestBody PromoCodeRequest body) {
         return ResponseEntity.ok(ApiResponse.ok(
-                rideUseCase.applyPromoCode(id, code, SecurityUtils.currentUserId())));
+                rideUseCase.applyPromoCode(id, body.getCode(), SecurityUtils.currentUserId())));
     }
 }

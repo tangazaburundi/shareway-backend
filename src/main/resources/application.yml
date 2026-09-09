@@ -40,6 +40,16 @@ spring:
     validate-on-migrate: true
     out-of-order: false
 
+  # Redis — utilisé SEULEMENT pour le rate limiter partagé (multi-instances).
+  # Si Redis n'est pas installé/joignable, le rate limiter reste en mémoire :
+  # le démarrage et le dev local ne dépendent pas de Redis.
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+
   mail:
     host: ${MAIL_HOST:smtp-relay.brevo.com}
     port: ${MAIL_PORT:587}
@@ -79,11 +89,11 @@ security:
     max-attempts: ${ADMIN_MAX_LOGIN_ATTEMPTS:5}
     lock-minutes: ${ADMIN_ACCOUNT_LOCK_MINUTES:180}
   jwt:
-    secret: ${JWT_SECRET:dev-jwt-secret-key-change-in-production-minimum-256-bits}
+    secret: ${JWT_SECRET:?JWT_SECRET is required}
     expiration: ${JWT_EXPIRATION:43200000}
     refresh-expiration: ${JWT_REFRESH_EXPIRATION:43200000}
   admin-jwt:
-    secret: ${ADMIN_JWT_SECRET:dev-admin-secret-key-change-in-production-256-bits}
+    secret: ${ADMIN_JWT_SECRET:?ADMIN_JWT_SECRET is required}
     access-expiration: ${ADMIN_JWT_EXPIRATION:43200000}
     refresh-expiration: ${ADMIN_JWT_REFRESH_EXPIRATION:43200000}
 
@@ -93,9 +103,13 @@ shareway:
     frontend-url: ${FRONTEND_URL:http://localhost:4200}
     backend-url: ${BACKEND_URL:http://localhost:8084}
     upload-dir: ${UPLOAD_DIR:./uploads}
+    trusted-forward-headers: ${TRUSTED_FORWARD_HEADERS:false}
+    rate-limiter:
+      # Fréquence de réévaluation Redis/mémoire (bascule à chaud).
+      refresh-seconds: ${RATE_LIMITER_REFRESH_SECONDS:30}
   stripe:
-    secret-key: ${STRIPE_SECRET_KEY:sk_test_placeholder}
-    webhook-secret: ${STRIPE_WEBHOOK_SECRET:whsec_placeholder}
+    secret-key: ${STRIPE_SECRET_KEY:?STRIPE_SECRET_KEY is required}
+    webhook-secret: ${STRIPE_WEBHOOK_SECRET:?STRIPE_WEBHOOK_SECRET is required}
   two-fa:
     issuer: Shareway
     digits: 6
@@ -116,10 +130,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,flyway
+        include: health,info
   endpoint:
     health:
-      show-details: always
+      show-details: when-authorized
 
 springdoc:
   api-docs:

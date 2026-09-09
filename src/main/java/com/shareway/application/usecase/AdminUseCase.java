@@ -48,6 +48,7 @@ import com.shareway.domain.repository.TripRepository;
 import com.shareway.domain.repository.UserRepository;
 import com.shareway.infrastructure.adapter.specification.UserSpecifications;
 import com.shareway.infrastructure.security.AdminJwtService;
+import com.shareway.infrastructure.security.SecurityUtils;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -620,6 +621,9 @@ public class AdminUseCase {
     // ═══════════════════════════════════════════════════════════
 
     public UserResponse changeUserRole(String userId, String newRole, String adminId) {
+        if (userId.equals(adminId)) {
+            throw new InvalidOperationException("Impossible de modifier son propre rôle");
+        }
         User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new UserNotFoundException("Utilisateur introuvable: " + userId));
         User.UserRole oldRole = user.getRole();
@@ -633,23 +637,60 @@ public class AdminUseCase {
         User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new UserNotFoundException("Utilisateur introuvable: " + userId));
 
+        if (userId.equals(adminId)) {
+            throw new InvalidOperationException("Impossible de modifier son propre rôle système");
+        }
+
+        SystemRole actorRole = SecurityUtils.currentSystemRole();
+        if (actorRole != SystemRole.ADMIN && actorRole != SystemRole.SUPER_ADMIN) {
+            throw new NotAuthorizedException("Action réservée à un administrateur");
+        }
+
+        if (systemRole != null && !systemRole.isBlank() && !"NONE".equalsIgnoreCase(systemRole)) {
+            SystemRole newRole = SystemRole.fromString(systemRole);
+            ensureActorCanGrant(actorRole, newRole);
+        }
+
         if (systemRole == null || systemRole.isBlank() || "NONE".equalsIgnoreCase(systemRole)) {
             adminRoleRepository.findByUserId(userId).ifPresent(adminRoleRepository::delete);
             user.setSystemRole(null);
             auditPort.log("SYSTEM_ROLE_REMOVED", "User", userId, null, "NONE", adminId);
         } else {
-            SystemRole newRole = SystemRole.fromString(systemRole);
             AdminRole adminRole = adminRoleRepository.findByUserId(userId)
                     .orElse(AdminRole.builder().userId(userId).build());
             String oldRoleName = adminRole.getRole() != null ? adminRole.getRole().name() : "NONE";
-            adminRole.setRole(newRole);
+            adminRole.setRole(SystemRole.fromString(systemRole));
             adminRole.setGrantedBy(adminId);
             adminRoleRepository.save(adminRole);
-            user.setSystemRole(newRole);
-            auditPort.log("SYSTEM_ROLE_ASSIGNED", "User", userId, oldRoleName, newRole.name(), adminId);
+            user.setSystemRole(SystemRole.fromString(systemRole));
+            auditPort.log("SYSTEM_ROLE_ASSIGNED", "User", userId, oldRoleName, systemRole, adminId);
         }
 
         return toUserResponse(user);
+    }
+
+    /**
+     * Un administrateur ne peut PAS accorder (ou promouvoir vers) un rôle
+     * de niveau supérieur ou égal au sien.
+     * SUPER_ADMIN (3) > ADMIN (2) > MODERATOR (1) > SUPPORT (0).
+     */
+    private void ensureActorCanGrant(SystemRole actor, SystemRole target) {
+        int actorRank = rank(actor);
+        int targetRank = rank(target);
+        if (targetRank >= actorRank) {
+            throw new NotAuthorizedException(
+                    "Impossible d'accorder le rôle " + target.name()
+                            + " : niveau supérieur ou égal à votre rôle (" + actor.name() + ")");
+        }
+    }
+
+    private int rank(SystemRole role) {
+        return switch (role) {
+            case SUPER_ADMIN -> 3;
+            case ADMIN -> 2;
+            case MODERATOR -> 1;
+            case SUPPORT -> 0;
+        };
     }
 
     // ═══════════════════════════════════════════════════════════

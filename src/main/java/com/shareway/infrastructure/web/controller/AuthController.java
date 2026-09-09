@@ -1,8 +1,12 @@
 package com.shareway.infrastructure.web.controller;
 
 import com.shareway.application.dto.request.AdminLoginRequest;
+import com.shareway.application.dto.request.ForgotPasswordRequest;
 import com.shareway.application.dto.request.LoginRequest;
+import com.shareway.application.dto.request.RefreshTokenRequest;
 import com.shareway.application.dto.request.RegisterRequest;
+import com.shareway.application.dto.request.ResendVerificationRequest;
+import com.shareway.application.dto.request.ResetPasswordRequest;
 import com.shareway.application.dto.response.ApiResponse;
 import com.shareway.application.dto.response.AdminAuthResponse;
 import com.shareway.application.dto.response.AuthResponse;
@@ -55,35 +59,26 @@ public class AuthController {
     }
 
     @PostMapping("/forgot-password")
-    public ResponseEntity<ApiResponse<Void>> forgotPassword(@RequestBody java.util.Map<String, String> body) {
-        authUseCase.forgotPassword(body.get("email"));
+    public ResponseEntity<ApiResponse<Void>> forgotPassword(@Valid @RequestBody ForgotPasswordRequest req) {
+        authUseCase.forgotPassword(req.getEmail());
         return ResponseEntity.ok(ApiResponse.noContent("If the email exists, a reset link was sent"));
     }
 
     @PostMapping("/resend-verification")
-    public ResponseEntity<ApiResponse<Void>> resendVerification(@RequestBody java.util.Map<String, String> body) {
-        authUseCase.resendVerification(body.get("email"));
+    public ResponseEntity<ApiResponse<Void>> resendVerification(@Valid @RequestBody ResendVerificationRequest req) {
+        authUseCase.resendVerification(req.getEmail());
         return ResponseEntity.ok(ApiResponse.noContent("Verification email resent"));
     }
 
     @PostMapping("/reset-password")
-    public ResponseEntity<ApiResponse<Void>> resetPassword(@RequestBody java.util.Map<String, String> body) {
-        String token = body.get("token");
-        String newPassword = body.get("newPassword");
-        if (token == null || token.isBlank() || newPassword == null || newPassword.isBlank()) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("VALIDATION_ERROR", "Token and newPassword are required"));
-        }
-        authUseCase.resetPassword(token, newPassword);
+    public ResponseEntity<ApiResponse<Void>> resetPassword(@Valid @RequestBody ResetPasswordRequest req) {
+        authUseCase.resetPassword(req.getToken(), req.getNewPassword());
         return ResponseEntity.ok(ApiResponse.noContent("Password reset successfully"));
     }
 
     @PostMapping("/refresh-token")
-    public ResponseEntity<ApiResponse<AuthResponse>> refreshToken(@RequestBody java.util.Map<String, String> body) {
-        String refreshToken = body.get("refreshToken");
-        if (refreshToken == null || refreshToken.isBlank()) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("VALIDATION_ERROR", "Refresh token is required"));
-        }
-        AuthResponse response = authUseCase.refreshToken(refreshToken);
+    public ResponseEntity<ApiResponse<AuthResponse>> refreshToken(@Valid @RequestBody RefreshTokenRequest req) {
+        AuthResponse response = authUseCase.refreshToken(req.getRefreshToken());
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 

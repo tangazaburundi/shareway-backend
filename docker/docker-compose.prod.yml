@@ -27,6 +27,21 @@ services:
     networks:
       - immo-net
 
+  redis:
+    image: redis:7-alpine
+    container_name: tangaza-redis
+    restart: unless-stopped
+    command: redis-server --requirepass "${REDIS_PASSWORD}" --appendonly yes
+    volumes:
+      - tangaza_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?REDIS_PASSWORD is required}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - immo-net
+
   backend:
     build:
       context: ..
@@ -36,11 +51,16 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: prod
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/shareway_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8
       DB_USERNAME: shareway_user
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:?ADMIN_JWT_SECRET is required}
       FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required}
@@ -60,6 +80,7 @@ services:
 
 volumes:
   tangaza_mysql_data:
+  tangaza_redis_data:
   tangaza_uploads:
   tangaza_logs:
 

@@ -1,5 +1,6 @@
 package com.shareway.infrastructure.web.controller;
 
+import com.shareway.application.dto.request.FlagRequest;
 import com.shareway.application.dto.request.SendMessageRequest;
 import com.shareway.application.dto.response.ApiResponse;
 import com.shareway.application.dto.response.ConversationSummaryResponse;
@@ -7,6 +8,7 @@ import com.shareway.application.dto.response.MessageResponse;
 import com.shareway.application.dto.response.PageResponse;
 import com.shareway.application.usecase.MessageUseCase;
 import com.shareway.infrastructure.security.SecurityUtils;
+import com.shareway.infrastructure.util.Pagination;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -26,7 +28,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * ORDRE CRITIQUE : routes statiques AVANT /{id}
@@ -58,7 +59,12 @@ public class MessageController {
     public ResponseEntity<ApiResponse<MessageResponse>> send(
             @Valid @RequestBody SendMessageRequest req) {
         MessageResponse msg = messageUseCase.send(req, SecurityUtils.currentUserId());
-        messaging.convertAndSend("/topic/messages", msg);
+        // Diffusion UNIQUEMENT aux deux participants de la conversation
+        // (et non sur un topic global exposé à tous les utilisateurs connectés).
+        String senderId = msg.getSenderId();
+        String receiverId = msg.getReceiverId();
+        if (receiverId != null) messaging.convertAndSendToUser(receiverId, "/queue/messages", msg);
+        if (senderId != null && !senderId.equals(receiverId)) messaging.convertAndSendToUser(senderId, "/queue/messages", msg);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok(msg, "Message envoyé"));
     }
@@ -88,7 +94,8 @@ public class MessageController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size) {
         return ResponseEntity.ok(ApiResponse.ok(
-                messageUseCase.getConversation(SecurityUtils.currentUserId(), userId, page, size)));
+                messageUseCase.getConversation(SecurityUtils.currentUserId(), userId,
+                        Pagination.sanitizePage(page), Pagination.sanitizeSize(size))));
     }
 
     /**
@@ -122,8 +129,8 @@ public class MessageController {
     @Operation(summary = "Signaler un message")
     public ResponseEntity<ApiResponse<Void>> flag(
             @PathVariable String id,
-            @RequestBody Map<String, String> body) {
-        messageUseCase.flagMessage(id, body.getOrDefault("reason", ""), SecurityUtils.currentUserId());
+            @Valid @RequestBody FlagRequest body) {
+        messageUseCase.flagMessage(id, body.getReason() != null ? body.getReason() : "", SecurityUtils.currentUserId());
         return ResponseEntity.ok(ApiResponse.noContent("Message signalé"));
     }
 

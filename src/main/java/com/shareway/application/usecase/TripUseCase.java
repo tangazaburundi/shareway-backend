@@ -178,42 +178,6 @@ public class TripUseCase {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // Réserver un trajet
-    // ─────────────────────────────────────────────────────────────────────
-    public void book(String tripId, BookTripRequest req, String passengerId) {
-        Trip trip = tripRepository.findByIdAndDeletedAtIsNull(tripId)
-                .orElseThrow(() -> new TripNotFoundException(TRIP_NOT_FOUND));
-        User passenger = userRepository.findByIdAndDeletedAtIsNull(passengerId)
-                .orElseThrow(() -> new UserNotFoundException("Passenger not found"));
-
-        tripDomainService.validateBooking(trip, passenger);
-
-        if (!trip.canJoin(req.getSeats()))
-            throw new InsufficientSeatsException("Not enough available seats");
-
-        trip.bookSeats(req.getSeats());
-
-        Booking booking = Booking.builder()
-                .trip(trip).passenger(passenger)
-                .seatsBooked(req.getSeats())
-                .currency(req.getCurrency() != null
-                        ? Trip.Currency.valueOf(req.getCurrency()) : trip.getCurrency())
-                .amountPaid(trip.getPricePerSeat()
-                        .multiply(BigDecimal.valueOf(req.getSeats())))
-                .build();
-
-        bookingRepository.save(booking);
-        tripRepository.save(trip);
-
-        eventPublisher.publishEvent(
-                new TripBookedEvent(tripId, passengerId, trip.getDriver().getId(), req.getSeats()));
-        notificationPort.notify(trip.getDriver().getId(), "BOOKING",
-                "Nouveau passager",
-                passenger.getFullName() + " a rejoint votre trajet vers " + trip.getArrivalCity());
-        auditPort.log("TRIP_BOOKED", "Booking", booking.getId(), null, null, passengerId);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
     // Annuler un trajet (passager)
     // ─────────────────────────────────────────────────────────────────────
     public Void leaveTrip(String tripId, String reason, String passagerId) {
@@ -610,7 +574,9 @@ public class TripUseCase {
 
     // ── Réserver (passager) ──────────────────────────────────────────────
     public BookingResponse book(String tripId, BookTripRequest req, String passengerId) {
-        Trip trip = tripRepository.findByIdAndDeletedAtIsNull(tripId)
+        // Verrou pessimiste : empêche deux réservations concurrentes d'être
+        // acceptées simultanément (anti-surbooking).
+        Trip trip = tripRepository.findByIdForUpdate(tripId)
                 .orElseThrow(() -> new TripNotFoundException("Trajet introuvable"));
         User passenger = userRepository.findByIdAndDeletedAtIsNull(passengerId)
                 .orElseThrow(() -> new UserNotFoundException("Passager introuvable"));

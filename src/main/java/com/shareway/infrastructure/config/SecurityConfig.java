@@ -53,9 +53,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET,
                                 "/trips", "/trips/{id}", "/trips/share/**").permitAll()
 
-                        // ── Courses on-demand (estimation + nearby = public) ────────────
-                        .requestMatchers(HttpMethod.GET,
-                                "/rides/estimate", "/rides/nearby").permitAll()
+                        // ── Courses on-demand (estimation publique) ─────────────────────
+                        .requestMatchers(HttpMethod.GET, "/rides/estimate").permitAll()
 
                         // ── Promo codes (validation publique) ─────────────────────────
                         .requestMatchers(HttpMethod.GET, "/promo/validate").permitAll()
@@ -83,8 +82,13 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/visits").permitAll()
                         .requestMatchers(HttpMethod.PATCH, "/visits/cookies").permitAll()
 
-                        // ── Fichiers statiques ─────────────────────────────────────────
-                        .requestMatchers("/static-files/**").permitAll()
+                        // ── Webhook Stripe (protégé par la signature Stripe) ────────
+                        .requestMatchers(HttpMethod.POST, "/payments/webhook").permitAll()
+
+                        // ── Fichiers statiques publics (AVATARS uniquement) ──────────
+                        // Les documents d'identité (permis, carte grise…) passent par
+                        // FileController qui applique un contrôle de propriété.
+                        .requestMatchers(HttpMethod.GET, "/static-files/avatars/**").permitAll()
 
                         // ── Swagger / Actuator ─────────────────────────────────────────
                         .requestMatchers(
