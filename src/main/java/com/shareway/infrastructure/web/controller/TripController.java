@@ -2,6 +2,7 @@ package com.shareway.infrastructure.web.controller;
 
 import com.shareway.application.dto.request.BookTripRequest;
 import com.shareway.application.dto.request.CreateTripRequest;
+import com.shareway.application.dto.request.ReasonRequest;
 import com.shareway.application.dto.request.RespondBookingRequest;
 import com.shareway.application.dto.request.TripSearchRequest;
 import com.shareway.application.dto.request.UpdateTripRequest;
@@ -14,6 +15,7 @@ import com.shareway.application.dto.response.TripResponse;
 import com.shareway.application.usecase.TripUseCase;
 import com.shareway.domain.service.PriceCalculationService;
 import com.shareway.infrastructure.security.SecurityUtils;
+import com.shareway.infrastructure.util.Pagination;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -35,7 +37,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Map;
 
 /**
  * ORDRE CRITIQUE des routes :
@@ -64,7 +65,8 @@ public class TripController {
             @ModelAttribute TripSearchRequest req,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(ApiResponse.ok(tripUseCase.search(req, page, size)));
+        return ResponseEntity.ok(ApiResponse.ok(tripUseCase.search(req,
+                Pagination.sanitizePage(page), Pagination.sanitizeSize(size))));
     }
 
     @PostMapping
@@ -182,8 +184,8 @@ public class TripController {
     )
     public ResponseEntity<ApiResponse<Void>> leave(
             @PathVariable String id,
-            @RequestBody(required = false) Map<String, String> body) {
-        String reason = body != null ? body.getOrDefault("reason", "") : "";
+            @RequestBody(required = false) @Valid ReasonRequest body) {
+        String reason = body != null && body.getReason() != null ? body.getReason() : "";
         tripUseCase.leaveTrip(id, SecurityUtils.currentUserId(), reason);
         return ResponseEntity.ok(ApiResponse.noContent("Réservation annulée"));
     }
@@ -193,8 +195,8 @@ public class TripController {
     @Operation(summary = "Annuler le trajet (conducteur uniquement)")
     public ResponseEntity<ApiResponse<Void>> cancel(
             @PathVariable String id,
-            @RequestBody Map<String, String> body) {
-        tripUseCase.cancel(id, body.getOrDefault("reason", ""), SecurityUtils.currentUserId());
+            @RequestBody(required = false) @Valid ReasonRequest body) {
+        tripUseCase.cancel(id, body != null && body.getReason() != null ? body.getReason() : "", SecurityUtils.currentUserId());
         return ResponseEntity.ok(ApiResponse.noContent("Trajet annulé"));
     }
 

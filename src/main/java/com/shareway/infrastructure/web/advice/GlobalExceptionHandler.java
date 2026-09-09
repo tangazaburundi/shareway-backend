@@ -121,7 +121,8 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NotAuthorizedException.class)
     public ResponseEntity<ApiResponse<Void>> handleUnauthorized(NotAuthorizedException e, HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(ApiResponse.error("UNAUTHORIZED", e.getMessage()));
+                .body(ApiResponse.error("UNAUTHORIZED",
+                        resolveMessage("error.unauthorized", "Non autorisé", request)));
     }
 
     @ExceptionHandler(AccessDeniedException.class)
@@ -139,25 +140,29 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccountLockedException.class)
     public ResponseEntity<ApiResponse<Void>> handleLocked(AccountLockedException e, HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.LOCKED)
-                .body(ApiResponse.error("ACCOUNT_LOCKED", e.getMessage()));
+                .body(ApiResponse.error("ACCOUNT_LOCKED",
+                        resolveMessage("error.account.locked", "Compte temporairement verrouillé", request)));
     }
 
     @ExceptionHandler(AccountPermanentlyLockedException.class)
     public ResponseEntity<ApiResponse<Void>> handlePermanentlyLocked(AccountPermanentlyLockedException e, HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.LOCKED)
-                .body(ApiResponse.error("ACCOUNT_LOCKED_PERMANENT", e.getMessage()));
+                .body(ApiResponse.error("ACCOUNT_LOCKED_PERMANENT",
+                        resolveMessage("error.account.locked.permanent", "Compte verrouillé", request)));
     }
 
     @ExceptionHandler(ResourceAlreadyExistsException.class)
     public ResponseEntity<ApiResponse<Void>> handleConflict(ResourceAlreadyExistsException e, HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(ApiResponse.error("CONFLICT", e.getMessage()));
+                .body(ApiResponse.error("CONFLICT",
+                        resolveMessage("error.conflict", "Conflit de ressource", request)));
     }
 
     @ExceptionHandler(InvalidOperationException.class)
     public ResponseEntity<ApiResponse<Void>> handleInvalidOp(InvalidOperationException e, HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error("INVALID_OPERATION", e.getMessage()));
+                .body(ApiResponse.error("INVALID_OPERATION",
+                        resolveMessage("error.invalid.operation", "Opération invalide", request)));
     }
 
     @ExceptionHandler(InsufficientSeatsException.class)

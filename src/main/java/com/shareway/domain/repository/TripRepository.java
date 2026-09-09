@@ -5,6 +5,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -13,6 +15,8 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+
+import jakarta.persistence.LockModeType;
 
 @Repository
 public interface TripRepository extends JpaRepository<Trip, String>, JpaSpecificationExecutor<Trip> {
@@ -87,4 +91,12 @@ public interface TripRepository extends JpaRepository<Trip, String>, JpaSpecific
     @Query("SELECT t FROM Trip t WHERE t.deletedAt IS NULL AND " +
             "t.departureTime BETWEEN :from AND :to AND t.status = 'OPEN'")
     List<Trip> findTripsInPeriod(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /**
+     * Lit un trajet avec verrou écriture pessimiste pour la réservation,
+     * garantissant l'atomicité face aux réservations concurrentes.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT t FROM Trip t WHERE t.id = :id AND t.deletedAt IS NULL")
+    Optional<Trip> findByIdForUpdate(@Param("id") String id);
 }

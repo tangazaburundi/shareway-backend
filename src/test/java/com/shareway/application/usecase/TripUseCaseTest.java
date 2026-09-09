@@ -168,7 +168,7 @@ class TripUseCaseTest {
 
     @Test
     void book_trip_shouldCreateBooking() {
-        when(tripRepository.findByIdAndDeletedAtIsNull("trip-1")).thenReturn(Optional.of(trip));
+        when(tripRepository.findByIdForUpdate("trip-1")).thenReturn(Optional.of(trip));
         when(userRepository.findByIdAndDeletedAtIsNull("passenger-1")).thenReturn(Optional.of(passenger));
         when(bookingRepository.save(any(Booking.class))).thenAnswer(i -> i.getArgument(0));
         when(tripRepository.save(any(Trip.class))).thenAnswer(i -> i.getArgument(0));
@@ -188,7 +188,7 @@ class TripUseCaseTest {
 
     @Test
     void book_trip_not_found_shouldThrow() {
-        when(tripRepository.findByIdAndDeletedAtIsNull("unknown")).thenReturn(Optional.empty());
+        when(tripRepository.findByIdForUpdate("unknown")).thenReturn(Optional.empty());
 
         BookTripRequest req = new BookTripRequest();
         req.setSeats(1);

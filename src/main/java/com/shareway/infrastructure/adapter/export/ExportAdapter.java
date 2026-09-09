@@ -24,7 +24,7 @@ public class ExportAdapter implements ExportPort {
                 String[] values = new String[headers.length];
                 for (int i = 0; i < headers.length; i++) {
                     Object v = row.get(headers[i]);
-                    values[i] = v != null ? v.toString() : "";
+                    values[i] = sanitize(v != null ? v.toString() : "");
                 }
                 writer.writeNext(values);
             }
@@ -62,7 +62,7 @@ public class ExportAdapter implements ExportPort {
                     Object val = rowData.get(headers[c]);
                     Cell cell = row.createCell(c);
                     if (val instanceof Number n) cell.setCellValue(n.doubleValue());
-                    else cell.setCellValue(val != null ? val.toString() : "");
+                    else cell.setCellValue(sanitize(val != null ? val.toString() : ""));
                 }
             }
 
@@ -72,5 +72,20 @@ public class ExportAdapter implements ExportPort {
         } catch (IOException e) {
             throw new RuntimeException("Excel export failed", e);
         }
+    }
+
+    /**
+     * Anti-CSV/formula injection : neutralise les cellules qui commencent par
+     * un caractère interprété comme une formule par Excel/Sheets (= + - @ \t \r),
+     * pour éviter qu'une valeur saisie par un utilisateur (nom, bio, raison…)
+     * exécute une formule à l'ouverture du fichier exporté.
+     */
+    private String sanitize(String value) {
+        if (value == null || value.isEmpty()) return value;
+        char first = value.charAt(0);
+        if (first == '=' || first == '+' || first == '-' || first == '@' || first == '\t' || first == '\r') {
+            return "'" + value;
+        }
+        return value;
     }
 }

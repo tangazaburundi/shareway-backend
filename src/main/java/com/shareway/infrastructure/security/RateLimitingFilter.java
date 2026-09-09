@@ -1,29 +1,50 @@
 package com.shareway.infrastructure.security;
 
-import com.shareway.infrastructure.config.RateLimitingConfig;
-import io.github.bucket4j.Bucket;
+import com.shareway.infrastructure.security.ratelimit.DynamicRateLimitStore;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Map;
-import java.util.function.Supplier;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 @RequiredArgsConstructor
 public class RateLimitingFilter extends OncePerRequestFilter {
 
-    private final Map<String, Bucket> rateLimitBuckets;
+    private final DynamicRateLimitStore rateLimitStore;
 
-    private static final String LOGIN_PATH = "/auth/login";
-    private static final String REGISTER_PATH = "/auth/register";
-    private static final String FORGOT_PASSWORD_PATH = "/auth/forgot-password";
+    /**
+     * Le header X-Forwarded-For n'est pris en compte QUE si l'application
+     * est réellement derrière un reverse proxy de confiance qui le fixe.
+     * Sinon, un attaquant peut le falsifier à chaque requête pour
+     * contourner entièrement le rate limiting (nouvelle clé = nouveau bucket).
+     */
+    @Value("${shareway.app.trusted-forward-headers:false}")
+    private boolean trustedForwardHeaders;
+
+    /** Règle de rate limiting : nombre max d'appels par fenêtre (secondes). */
+    private record RateRule(int limit, int windowSeconds) {}
+
+    private static final Map<String, RateRule> POST_RULES = new ConcurrentHashMap<>();
+    private static final Map<String, RateRule> GET_RULES = new ConcurrentHashMap<>();
+
+    static {
+        POST_RULES.put("/auth/login", new RateRule(5, 60));
+        POST_RULES.put("/auth/register", new RateRule(3, 60));
+        POST_RULES.put("/auth/forgot-password", new RateRule(3, 60));
+        POST_RULES.put("/rides", new RateRule(20, 60));
+        POST_RULES.put("/messages", new RateRule(30, 60));
+        GET_RULES.put("/rides/nearby", new RateRule(60, 60));
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -31,32 +52,21 @@ public class RateLimitingFilter extends OncePerRequestFilter {
                                     FilterChain filterChain)
             throws ServletException, IOException {
 
-        String path = request.getRequestURI();
+        String path = request.getServletPath();
         String method = request.getMethod();
 
-        if (!"POST".equalsIgnoreCase(method)) {
+        RateRule rule = resolveRule(method, path);
+
+        if (rule == null) {
             filterChain.doFilter(request, response);
             return;
         }
 
         String clientIp = getClientIp(request);
-        Supplier<Bucket> bucketSupplier;
+        String key = clientIp + ":" + method + ":" + path;
+        boolean allowed = rateLimitStore.tryAcquire(key, rule.limit(), Duration.ofSeconds(rule.windowSeconds()));
 
-        if (path.equals(LOGIN_PATH)) {
-            bucketSupplier = RateLimitingConfig::createLoginBucket;
-        } else if (path.equals(REGISTER_PATH)) {
-            bucketSupplier = RateLimitingConfig::createRegisterBucket;
-        } else if (path.equals(FORGOT_PASSWORD_PATH)) {
-            bucketSupplier = RateLimitingConfig::createForgotPasswordBucket;
-        } else {
-            filterChain.doFilter(request, response);
-            return;
-        }
-
-        String key = clientIp + ":" + path;
-        Bucket bucket = rateLimitBuckets.computeIfAbsent(key, k -> bucketSupplier.get());
-
-        if (bucket.tryConsume(1)) {
+        if (allowed) {
             filterChain.doFilter(request, response);
         } else {
             response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
@@ -65,10 +75,22 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         }
     }
 
+    private RateRule resolveRule(String method, String path) {
+        if ("POST".equalsIgnoreCase(method)) {
+            return POST_RULES.get(path);
+        } else if ("GET".equalsIgnoreCase(method)) {
+            return GET_RULES.get(path);
+        }
+        return null;
+    }
+
     private String getClientIp(HttpServletRequest request) {
-        String xfHeader = request.getHeader("X-Forwarded-For");
-        if (xfHeader != null && !xfHeader.isBlank()) {
-            return xfHeader.split(",")[0].trim();
+        if (trustedForwardHeaders) {
+            String xfHeader = request.getHeader("X-Forwarded-For");
+            if (xfHeader != null && !xfHeader.isBlank()) {
+                String ip = xfHeader.split(",")[0].trim();
+                if (!ip.isBlank()) return ip;
+            }
         }
         return request.getRemoteAddr();
     }

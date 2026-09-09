@@ -50,7 +50,8 @@ services:
       DB_USERNAME: shareway_user
       DB_PASSWORD: shareway_pass
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/shareway_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-      JWT_SECRET: change-me-in-production-minimum-32-chars-secret
+      JWT_SECRET: 49t0m3fY1djLVWQCXVdMI2zau/MVol+A4csRbCrMp0Z2TqaBhu9mQsI8c9KgN3/K
+      ADMIN_JWT_SECRET: xTGk2yIoWUSnq9LQ7aieROIX3p+us6Enjamu2ElkIVLkYlphNbRsooSuuyC4OWNk
       FRONTEND_URL: http://localhost:4200
     ports:
       - "8080:8080"

@@ -2,6 +2,10 @@ package com.shareway.infrastructure.web.controller;
 
 import com.shareway.application.dto.request.AdminBlockUserRequest;
 import com.shareway.application.dto.request.AdminReviewReportRequest;
+import com.shareway.application.dto.request.ReasonRequest;
+import com.shareway.application.dto.request.RoleUpdateRequest;
+import com.shareway.application.dto.request.SettingUpdateRequest;
+import com.shareway.application.dto.request.SystemRoleUpdateRequest;
 import com.shareway.application.dto.response.ApiResponse;
 import com.shareway.application.dto.response.AdminRoleRequestResponse;
 import com.shareway.application.dto.response.AuditLogResponse;
@@ -14,6 +18,7 @@ import com.shareway.application.dto.response.UserResponse;
 import com.shareway.application.usecase.AdminUseCase;
 import com.shareway.domain.model.RoleRequest;
 import com.shareway.infrastructure.security.SecurityUtils;
+import com.shareway.infrastructure.util.Pagination;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -60,7 +65,8 @@ public class AdminController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String search) {
-        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getUsers(page, size, search)));
+        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getUsers(
+                Pagination.sanitizePage(page), Pagination.sanitizeSize(size), search)));
     }
 
     @PostMapping("/users/{id}/block")
@@ -106,7 +112,8 @@ public class AdminController {
     public ResponseEntity<ApiResponse<PageResponse<ReviewResponse>>> flaggedReviews(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getFlaggedReviews(page, size)));
+        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getFlaggedReviews(
+                Pagination.sanitizePage(page), Pagination.sanitizeSize(size))));
     }
 
     @PostMapping("/reviews/{id}/approve")
@@ -129,7 +136,8 @@ public class AdminController {
     public ResponseEntity<ApiResponse<PageResponse<MessageResponse>>> flaggedMessages(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getFlaggedMessages(page, size)));
+        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getFlaggedMessages(
+                Pagination.sanitizePage(page), Pagination.sanitizeSize(size))));
     }
 
     // ===== SIGNALEMENTS =====
@@ -139,7 +147,8 @@ public class AdminController {
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getReports(status, page, size)));
+        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getReports(status,
+                Pagination.sanitizePage(page), Pagination.sanitizeSize(size))));
     }
 
     @PostMapping("/reports/{id}/review")
@@ -178,7 +187,8 @@ public class AdminController {
             @RequestParam(required = false) String userId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size) {
-        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getAuditLogs(userId, page, size)));
+        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getAuditLogs(userId,
+                Pagination.sanitizePage(page), Pagination.sanitizeSize(size))));
     }
 
     // ===== APPROBATION / REJET UTILISATEURS =====
@@ -193,26 +203,28 @@ public class AdminController {
     @Operation(summary = "Rejeter un compte utilisateur")
     public ResponseEntity<ApiResponse<UserResponse>> rejectUser(
             @PathVariable String id,
-            @RequestBody(required = false) Map<String, String> body) {
-        String reason = body != null ? body.get("reason") : null;
+            @RequestBody(required = false) @Valid ReasonRequest body) {
+        String reason = body != null ? body.getReason() : null;
         return ResponseEntity.ok(ApiResponse.ok(
                 adminUseCase.rejectUser(id, SecurityUtils.currentUserId(), reason), "User rejected"));
     }
 
     @PutMapping("/users/{id}/role")
     @Operation(summary = "Changer le rôle d'un utilisateur")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<UserResponse>> changeUserRole(
-            @PathVariable String id, @RequestBody Map<String, String> body) {
+            @PathVariable String id, @Valid @RequestBody RoleUpdateRequest body) {
         return ResponseEntity.ok(ApiResponse.ok(
-                adminUseCase.changeUserRole(id, body.get("role"), SecurityUtils.currentUserId()), "Role updated"));
+                adminUseCase.changeUserRole(id, body.getRole(), SecurityUtils.currentUserId()), "Role updated"));
     }
 
     @PutMapping("/users/{id}/system-role")
     @Operation(summary = "Assigner un rôle système (ADMIN, MODERATOR, SUPPORT) ou retirer (NONE)")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<UserResponse>> assignSystemRole(
-            @PathVariable String id, @RequestBody Map<String, String> body) {
+            @PathVariable String id, @Valid @RequestBody SystemRoleUpdateRequest body) {
         return ResponseEntity.ok(ApiResponse.ok(
-                adminUseCase.assignSystemRole(id, body.get("systemRole"), SecurityUtils.currentUserId()),
+                adminUseCase.assignSystemRole(id, body.getSystemRole(), SecurityUtils.currentUserId()),
                 "System role updated"));
     }
 
@@ -223,7 +235,8 @@ public class AdminController {
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getRoleRequests(status, page, size)));
+        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getRoleRequests(status,
+                Pagination.sanitizePage(page), Pagination.sanitizeSize(size))));
     }
 
     @GetMapping("/role-requests/user/{userId}")
@@ -236,8 +249,8 @@ public class AdminController {
     @Operation(summary = "Approuver une demande de rôle")
     public ResponseEntity<ApiResponse<RoleRequest>> approveRoleRequest(
             @PathVariable String id,
-            @RequestBody(required = false) Map<String, String> body) {
-        String comment = body != null ? body.get("comment") : null;
+            @RequestBody(required = false) @Valid ReasonRequest body) {
+        String comment = body != null ? body.getReason() : null;
         return ResponseEntity.ok(ApiResponse.ok(
                 adminUseCase.approveRoleRequest(id, SecurityUtils.currentUserId(), comment), "Role request approved"));
     }
@@ -246,8 +259,8 @@ public class AdminController {
     @Operation(summary = "Rejeter une demande de rôle")
     public ResponseEntity<ApiResponse<RoleRequest>> rejectRoleRequest(
             @PathVariable String id,
-            @RequestBody(required = false) Map<String, String> body) {
-        String comment = body != null ? body.get("comment") : null;
+            @RequestBody(required = false) @Valid ReasonRequest body) {
+        String comment = body != null ? body.getReason() : null;
         return ResponseEntity.ok(ApiResponse.ok(
                 adminUseCase.rejectRoleRequest(id, SecurityUtils.currentUserId(), comment), "Role request rejected"));
     }
@@ -259,7 +272,8 @@ public class AdminController {
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getAllTrips(status, page, size)));
+        return ResponseEntity.ok(ApiResponse.ok(adminUseCase.getAllTrips(status,
+                Pagination.sanitizePage(page), Pagination.sanitizeSize(size))));
     }
 
     @PostMapping("/trips/{id}/approve")
@@ -273,8 +287,8 @@ public class AdminController {
     @Operation(summary = "Rejeter un voyage")
     public ResponseEntity<ApiResponse<TripResponse>> rejectTrip(
             @PathVariable String id,
-            @RequestBody(required = false) Map<String, String> body) {
-        String reason = body != null ? body.get("reason") : null;
+            @RequestBody(required = false) @Valid ReasonRequest body) {
+        String reason = body != null ? body.getReason() : null;
         return ResponseEntity.ok(ApiResponse.ok(
                 adminUseCase.rejectTrip(id, SecurityUtils.currentUserId(), reason), "Trip rejected"));
     }
@@ -283,8 +297,8 @@ public class AdminController {
     @Operation(summary = "Suspendre un voyage")
     public ResponseEntity<ApiResponse<TripResponse>> suspendTrip(
             @PathVariable String id,
-            @RequestBody(required = false) Map<String, String> body) {
-        String reason = body != null ? body.get("reason") : null;
+            @RequestBody(required = false) @Valid ReasonRequest body) {
+        String reason = body != null ? body.getReason() : null;
         return ResponseEntity.ok(ApiResponse.ok(
                 adminUseCase.suspendTrip(id, SecurityUtils.currentUserId(), reason), "Trip suspended"));
     }
@@ -301,8 +315,8 @@ public class AdminController {
     @Operation(summary = "Supprimer un voyage (soft delete)")
     public ResponseEntity<ApiResponse<Void>> deleteTrip(
             @PathVariable String id,
-            @RequestBody(required = false) Map<String, String> body) {
-        String reason = body != null ? body.get("reason") : null;
+            @RequestBody(required = false) @Valid ReasonRequest body) {
+        String reason = body != null ? body.getReason() : null;
         adminUseCase.softDeleteTrip(id, SecurityUtils.currentUserId(), reason);
         return ResponseEntity.ok(ApiResponse.noContent("Trip deleted"));
     }
@@ -323,8 +337,8 @@ public class AdminController {
     @Operation(summary = "Modifier un paramètre système")
     public ResponseEntity<ApiResponse<Void>> updateSetting(
             @PathVariable String key,
-            @RequestBody Map<String, String> body) {
-        adminUseCase.updateSystemSetting(key, body.get("value"));
+            @Valid @RequestBody SettingUpdateRequest body) {
+        adminUseCase.updateSystemSetting(key, body.getValue());
         return ResponseEntity.ok(ApiResponse.noContent("Setting updated"));
     }
 }

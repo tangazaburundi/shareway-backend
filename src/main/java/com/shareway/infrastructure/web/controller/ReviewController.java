@@ -1,6 +1,7 @@
 package com.shareway.infrastructure.web.controller;
 
 import com.shareway.application.dto.request.CreateReviewRequest;
+import com.shareway.application.dto.request.FlagRequest;
 import com.shareway.application.dto.response.ApiResponse;
 import com.shareway.application.dto.response.PageResponse;
 import com.shareway.application.dto.response.ReviewResponse;
@@ -22,7 +23,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * ORDRE CRITIQUE : routes statiques AVANT /{id}
@@ -118,8 +118,8 @@ public class ReviewController {
     @Operation(summary = "Signaler un avis inapproprié")
     public ResponseEntity<ApiResponse<Void>> flag(
             @PathVariable String id,
-            @RequestBody Map<String, String> body) {
-        reviewUseCase.flagReview(id, body.getOrDefault("reason", ""), SecurityUtils.currentUserId());
+            @Valid @RequestBody FlagRequest body) {
+        reviewUseCase.flagReview(id, body.getReason() != null ? body.getReason() : "", SecurityUtils.currentUserId());
         return ResponseEntity.ok(ApiResponse.noContent("Avis signalé"));
     }
 }

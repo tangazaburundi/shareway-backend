@@ -1,5 +1,6 @@
 package com.shareway.infrastructure.web.controller;
 
+import com.shareway.application.dto.request.ReasonRequest;
 import com.shareway.application.dto.response.*;
 import com.shareway.application.usecase.DocumentUseCase;
 import com.shareway.infrastructure.security.SecurityUtils;
@@ -13,9 +14,9 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequiredArgsConstructor
@@ -64,9 +65,9 @@ public class DocumentController {
     @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN','MODERATOR')")
     @Operation(summary = "Admin - Rejeter un document")
     public ResponseEntity<ApiResponse<DocumentResponse>> reject(
-            @PathVariable String id, @RequestBody Map<String, String> body) {
+            @PathVariable String id, @Valid @RequestBody ReasonRequest body) {
         return ResponseEntity.ok(ApiResponse.ok(
-            documentUseCase.rejectDocument(id, body.get("reason"), SecurityUtils.currentUserId()),
+            documentUseCase.rejectDocument(id, body.getReason(), SecurityUtils.currentUserId()),
             "Document rejected"));
     }
 }

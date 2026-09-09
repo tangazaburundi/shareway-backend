@@ -1,5 +1,6 @@
 package com.shareway.infrastructure.web.controller;
 
+import com.shareway.application.dto.request.DeviceTokenRequest;
 import com.shareway.application.dto.response.ApiResponse;
 import com.shareway.application.dto.response.NotificationResponse;
 import com.shareway.application.dto.response.PageResponse;
@@ -8,11 +9,10 @@ import com.shareway.application.usecase.NotificationUseCase;
 import com.shareway.infrastructure.security.SecurityUtils;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.Map;
 
 @RestController
 @RequestMapping("/notifications")
@@ -55,10 +55,9 @@ public class NotificationController {
 
     @PostMapping("/device-token")
     @SecurityRequirement(name = "bearerAuth")
-    public ResponseEntity<ApiResponse<Void>> registerDeviceToken(@RequestBody Map<String, String> body) {
-        String token = body.getOrDefault("token", "");
-        String platform = body.getOrDefault("platform", "WEB");
-        pushNotificationPort.registerDeviceToken(SecurityUtils.currentUserId(), token, platform);
+    public ResponseEntity<ApiResponse<Void>> registerDeviceToken(@Valid @RequestBody DeviceTokenRequest body) {
+        String platform = body.getPlatform() != null ? body.getPlatform() : "WEB";
+        pushNotificationPort.registerDeviceToken(SecurityUtils.currentUserId(), body.getToken(), platform);
         return ResponseEntity.ok(ApiResponse.noContent("Device token registered"));
     }
 }

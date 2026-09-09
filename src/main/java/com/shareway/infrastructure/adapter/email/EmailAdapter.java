@@ -36,7 +36,7 @@ public class EmailAdapter implements EmailPort {
                   Vérifier mon email
                 </a>
                 <p>Ce lien expire dans 24 heures.</p>
-                """.formatted(firstName, appName, url);
+                """.formatted(htmlEscape(firstName), htmlEscape(appName), url);
         sendHtml(to, "Vérifiez votre email - " + appName, html);
     }
 
@@ -52,14 +52,15 @@ public class EmailAdapter implements EmailPort {
                   Réinitialiser mon mot de passe
                 </a>
                 <p>Ce lien expire dans 1 heure. Si vous n'avez pas fait cette demande, ignorez ce message.</p>
-                """.formatted(firstName, url);
+                """.formatted(htmlEscape(firstName), url);
         sendHtml(to, "Réinitialisation de mot de passe - " + appName, html);
     }
 
     @Override
     @Async
     public void sendBookingConfirmation(String to, String firstName, String tripInfo) {
-        String html = "<h2>Réservation confirmée !</h2><p>Bonjour %s,</p><p>%s</p>".formatted(firstName, tripInfo);
+        String html = "<h2>Réservation confirmée !</h2><p>Bonjour %s,</p><p>%s</p>"
+                .formatted(htmlEscape(firstName), htmlEscape(tripInfo));
         sendHtml(to, "Votre réservation est confirmée - " + appName, html);
     }
 
@@ -67,14 +68,27 @@ public class EmailAdapter implements EmailPort {
     @Async
     public void sendTripCancellation(String to, String firstName, String tripInfo, String reason) {
         String html = "<h2>Trajet annulé</h2><p>Bonjour %s,</p><p>%s</p><p>Raison : %s</p>"
-                .formatted(firstName, tripInfo, reason);
+                .formatted(htmlEscape(firstName), htmlEscape(tripInfo), htmlEscape(reason));
         sendHtml(to, "Trajet annulé - " + appName, html);
     }
 
     @Override
     @Async
     public void sendGeneral(String to, String subject, String body) {
-        sendHtml(to, subject, "<p>" + body + "</p>");
+        sendHtml(to, subject, "<p>" + htmlEscape(body) + "</p>");
+    }
+
+    /**
+     * Échappe les entités HTML pour neutraliser toute injection
+     * (nom d'utilisateur, raison, contenu… passés par des clients).
+     */
+    private String htmlEscape(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     private void sendHtml(String to, String subject, String htmlBody) {

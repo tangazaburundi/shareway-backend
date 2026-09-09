@@ -7,10 +7,12 @@ import com.shareway.application.dto.response.VisitorRowResponse;
 import com.shareway.application.dto.response.VisitorStatsResponse;
 import com.shareway.application.usecase.VisitorUseCase;
 import com.shareway.infrastructure.security.SecurityUtils;
+import com.shareway.infrastructure.util.Pagination;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,6 +23,9 @@ import org.springframework.web.bind.annotation.*;
 public class VisitorController {
 
     private final VisitorUseCase visitorUseCase;
+
+    @Value("${shareway.app.trusted-forward-headers:false}")
+    private boolean trustedForwardHeaders;
 
     @PostMapping("/visits")
     @Operation(summary = "Enregistrer une visite (public)")
@@ -64,13 +69,17 @@ public class VisitorController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(ApiResponse.ok(
-                visitorUseCase.getAllVisitors(search, country, cookiesAccepted, page, size)));
+                visitorUseCase.getAllVisitors(search, country, cookiesAccepted,
+                        Pagination.sanitizePage(page), Pagination.sanitizeSize(size))));
     }
 
     private String getClientIp(HttpServletRequest request) {
-        String xff = request.getHeader("X-Forwarded-For");
-        if (xff != null && !xff.isEmpty()) {
-            return xff.split(",")[0].trim();
+        if (trustedForwardHeaders) {
+            String xff = request.getHeader("X-Forwarded-For");
+            if (xff != null && !xff.isBlank()) {
+                String ip = xff.split(",")[0].trim();
+                if (!ip.isBlank()) return ip;
+            }
         }
         return request.getRemoteAddr();
     }

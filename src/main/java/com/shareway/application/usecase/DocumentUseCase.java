@@ -10,6 +10,7 @@ import com.shareway.domain.model.User;
 import com.shareway.domain.model.UserDocument;
 import com.shareway.domain.repository.UserDocumentRepository;
 import com.shareway.domain.repository.UserRepository;
+import com.shareway.infrastructure.util.FileTypeValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +38,14 @@ public class DocumentUseCase {
         if (file.isEmpty()) throw new InvalidOperationException("File is empty");
         long maxSize = 10L * 1024 * 1024; // 10MB
         if (file.getSize() > maxSize) throw new InvalidOperationException("File too large (max 10MB)");
+
+        FileTypeValidator.FileType detected = FileTypeValidator.detect(file);
+        if (detected == FileTypeValidator.FileType.UNKNOWN
+                || !FileTypeValidator.FileType.PDF.equals(detected)
+                   && !FileTypeValidator.FileType.JPEG.equals(detected)
+                   && !FileTypeValidator.FileType.PNG.equals(detected)) {
+            throw new InvalidOperationException("Identity documents must be PDF, JPG or PNG");
+        }
 
         String url = storagePort.upload(file, "documents/" + userId + "/" + type.toLowerCase());
 

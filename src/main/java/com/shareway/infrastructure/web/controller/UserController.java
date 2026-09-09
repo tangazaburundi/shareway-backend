@@ -1,6 +1,7 @@
 package com.shareway.infrastructure.web.controller;
 
 import com.shareway.application.dto.request.CreateRoleRequest;
+import com.shareway.application.dto.request.EmergencyContactRequest;
 import com.shareway.application.dto.request.SaveVehicleRequest;
 import com.shareway.application.dto.request.SwitchRoleRequest;
 import com.shareway.application.dto.request.UpdateSoundPreferenceRequest;
@@ -258,15 +259,10 @@ public class UserController {
     @PostMapping("/me/emergency-contacts")
     @Operation(summary = "Ajouter un contact d'urgence")
     public ResponseEntity<ApiResponse<EmergencyContactResponse>> addEmergencyContact(
-            @RequestBody Map<String, String> body) {
-        String name = body.getOrDefault("name", "").trim();
-        String phone = body.getOrDefault("phone", "").trim();
-        String relationship = body.getOrDefault("relationship", "").trim();
-        if (name.isEmpty() || phone.isEmpty()) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("VALIDATION", "Nom et telephone requis"));
-        }
+            @Valid @RequestBody EmergencyContactRequest req) {
+        String relationship = req.getRelationship() != null ? req.getRelationship().trim() : "";
         return ResponseEntity.ok(ApiResponse.ok(
-                userUseCase.addEmergencyContact(name, phone, relationship, SecurityUtils.currentUserId()),
+                userUseCase.addEmergencyContact(req.getName().trim(), req.getPhone().trim(), relationship, SecurityUtils.currentUserId()),
                 "Contact d'urgence ajoute"));
     }
 
@@ -274,15 +270,10 @@ public class UserController {
     @Operation(summary = "Modifier un contact d'urgence")
     public ResponseEntity<ApiResponse<EmergencyContactResponse>> updateEmergencyContact(
             @PathVariable String contactId,
-            @RequestBody Map<String, String> body) {
-        String name = body.getOrDefault("name", "").trim();
-        String phone = body.getOrDefault("phone", "").trim();
-        String relationship = body.getOrDefault("relationship", "").trim();
-        if (name.isEmpty() || phone.isEmpty()) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("VALIDATION", "Nom et telephone requis"));
-        }
+            @Valid @RequestBody EmergencyContactRequest req) {
+        String relationship = req.getRelationship() != null ? req.getRelationship().trim() : "";
         return ResponseEntity.ok(ApiResponse.ok(
-                userUseCase.updateEmergencyContact(contactId, name, phone, relationship, SecurityUtils.currentUserId())));
+                userUseCase.updateEmergencyContact(contactId, req.getName().trim(), req.getPhone().trim(), relationship, SecurityUtils.currentUserId())));
     }
 
     @DeleteMapping("/me/emergency-contacts/{contactId}")

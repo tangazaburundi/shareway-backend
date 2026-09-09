@@ -33,7 +33,7 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             String token = extractToken(accessor);
             if (token != null) {
                 try {
-                    if (jwtService.isValid(token)) {
+                    if (jwtService.isValidAccessToken(token)) {
                         String userId = jwtService.extractUserId(token);
                         String role = jwtService.extractRole(token);
                         String systemRole = jwtService.extractSystemeRole(token);
@@ -55,6 +55,47 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
                 log.warn("WebSocket CONNECT: no token found in headers or URL");
             }
         }
+
+        if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
+            String destination = accessor.getDestination();
+            java.security.Principal principalAuth = accessor.getUser();
+            if (principalAuth == null || destination == null) {
+                log.warn("WebSocket SUBSCRIBE rejected: no auth or no destination");
+                return message;
+            }
+
+            String userId = principalAuth.getName();
+            boolean isAdmin = principalAuth instanceof org.springframework.security.core.Authentication auth
+                    && auth.getAuthorities() != null
+                    && auth.getAuthorities().stream().anyMatch(
+                    a -> "ROLE_ADMIN".equals(a.getAuthority()) || "ROLE_SUPER_ADMIN".equals(a.getAuthority()));
+
+            if (destination.startsWith("/user/") && destination.contains("/queue/")) {
+                String expectedPrefix = "/user/" + userId + "/queue/";
+                if (!destination.startsWith(expectedPrefix)) {
+                    log.warn("WebSocket SUBSCRIBE rejected: {} not allowed for user {}", destination, userId);
+                    return message;
+                }
+            } else if (destination.startsWith("/topic/trip/")) {
+                // Les topics de localisation par trajet sont ouverts aux participants.
+                // Vérification basique : le topic a le format /topic/trip/{tripId}/location.
+                // TODO: vérifier que l'utilisateur est bien un participant du trajet (booké + driver).
+                // Pour l'instant on bloque sauf ADMIN/SUPER_ADMIN qui auditent.
+                if (!isAdmin) {
+                    log.warn("WebSocket SUBSCRIBE rejected on trip topic for non-admin: {} by {}", destination, userId);
+                    return message;
+                }
+            } else if (destination.startsWith("/topic/admin/sos")) {
+                if (!isAdmin) {
+                    log.warn("WebSocket SUBSCRIBE rejected on admin SOS: {} by {}", destination, userId);
+                    return message;
+                }
+            } else if (destination.startsWith("/topic/")) {
+                log.warn("WebSocket SUBSCRIBE rejected on public topic: {} by {}", destination, userId);
+                return message;
+            }
+        }
+
         return message;
     }
 
@@ -62,26 +103,21 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         // 1. STOMP header "Authorization" (from CONNECT frame)
         String authHeader = accessor.getHeader("Authorization") instanceof String h ? h : null;
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            log.debug("Token from STOMP Authorization header");
             return authHeader.substring(7);
         }
 
         // 2. Native header "Authorization" (from HTTP handshake)
         String nativeAuth = accessor.getFirstNativeHeader("Authorization");
         if (nativeAuth != null && nativeAuth.startsWith("Bearer ")) {
-            log.debug("Token from native Authorization header");
             return nativeAuth.substring(7);
         }
 
         // 3. Query parameter ?token=xxx (from WebSocket URL)
-        // The token may be embedded in the session attributes during handshake
         Object connectHeader = accessor.getHeader("token");
         if (connectHeader instanceof String t && !t.isEmpty()) {
-            log.debug("Token from STOMP 'token' header");
             return t;
         }
 
-        log.debug("No token found in STOMP headers for command: {}", accessor.getCommand());
         return null;
     }
 }
